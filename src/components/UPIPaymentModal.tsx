@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useRecharge } from '../context/RechargeContext';
 import { OPERATORS } from '../data/operators';
-import { PAYMENT_CONFIG, generateUPIUri, generateOrderId } from '../config/payment';
+import { PAYMENT_CONFIG, generateAppDeepLink, generateOrderId } from '../config/payment';
 import { QRPaymentPanel } from './QRPaymentPanel';
 import { trackPaymentClick, type TrackablePaymentOption } from '../utils/trackPaymentClick';
 
@@ -35,7 +35,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
   const [activeMode, setActiveMode] = useState<'qr' | 'app'>('app');
 
   const [orderRef, setOrderRef] = useState<string>('');
-  const [orderCreated, setOrderCreated] = useState(false);
+  const [, setOrderCreated] = useState(false);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [error, setError] = useState<string>('');
   const [supportContact, setSupportContact] = useState<string>('');
@@ -50,6 +50,33 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
 
   const operator = (selectedOperator && OPERATORS[selectedOperator]) || OPERATORS.jio;
   const amount = selectedPlan ? selectedPlan.price : 0;
+
+  // Refs for race-condition prevention, deduplication, and stale closure mitigation
+  const orderCreatedRef = useRef<string | null>(null);
+  const inFlightPromiseRef = useRef<Promise<boolean> | null>(null);
+  const latestParamsRef = useRef({
+    mobileNumber,
+    selectedOperator,
+    providerName: operator.name,
+    selectedPlan,
+    amount,
+    activeMode,
+    selectedPaymentMethod,
+    activeUpiId,
+    orderRef,
+  });
+
+  latestParamsRef.current = {
+    mobileNumber,
+    selectedOperator,
+    providerName: operator.name,
+    selectedPlan,
+    amount,
+    activeMode,
+    selectedPaymentMethod,
+    activeUpiId,
+    orderRef,
+  };
 
   // Sync mode with selectedPaymentMethod on open
   useEffect(() => {
@@ -134,62 +161,81 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
     }
   }, [appPaymentStarted, orderRef]);
 
-  // Create order in backend (idempotent)
-  const ensureOrderCreated = useCallback(async () => {
-    if (orderCreated || isCreatingOrder) return true;
+  // Create order in backend (idempotent, guarded against duplicate requests, loops & race conditions)
+  const ensureOrderCreated = useCallback(async (customOrderRef?: string): Promise<boolean> => {
+    const params = latestParamsRef.current;
+    const targetRef = customOrderRef || params.orderRef;
+
+    if (!targetRef) return false;
+    if (orderCreatedRef.current === targetRef) return true;
+
+    // If an order-creation request is already in-flight for this order, safely await the same promise
+    if (inFlightPromiseRef.current) {
+      return inFlightPromiseRef.current;
+    }
+
     setIsCreatingOrder(true);
     setError('');
 
-    try {
-      const response = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mobileNumber,
-          providerId: selectedOperator,
-          providerName: operator.name,
-          planId: selectedPlan?.id,
-          planPrice: amount,
-          planSnapshot: selectedPlan
-            ? {
-                price: selectedPlan.price,
-                validity: selectedPlan.validity,
-                data: selectedPlan.data,
-                voice: selectedPlan.voice,
-                sms: selectedPlan.sms,
-              }
-            : {},
-          paymentMethod: activeMode === 'qr' ? 'qr' : selectedPaymentMethod,
-          upiId: activeUpiId,
-          orderRef,
-        }),
-      });
+    const createPromise = (async () => {
+      try {
+        const response = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          keepalive: true,
+          body: JSON.stringify({
+            mobileNumber: params.mobileNumber,
+            providerId: params.selectedOperator,
+            providerName: params.providerName,
+            planId: params.selectedPlan?.id,
+            planPrice: params.amount,
+            planSnapshot: params.selectedPlan
+              ? {
+                  price: params.selectedPlan.price,
+                  validity: params.selectedPlan.validity,
+                  data: params.selectedPlan.data,
+                  voice: params.selectedPlan.voice,
+                  sms: params.selectedPlan.sms,
+                }
+              : {},
+            paymentMethod: params.activeMode === 'qr' ? 'qr' : params.selectedPaymentMethod,
+            upiId: params.activeUpiId,
+            orderRef: targetRef,
+          }),
+        });
 
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to initialize payment order');
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to initialize payment order');
+        }
+
+        orderCreatedRef.current = targetRef;
+        setOrderCreated(true);
+        return true;
+      } catch (err: any) {
+        setError(err.message || 'Could not record order. Please try again.');
+        return false;
+      } finally {
+        inFlightPromiseRef.current = null;
+        setIsCreatingOrder(false);
       }
+    })();
 
-      setOrderCreated(true);
-      return true;
-    } catch (err: any) {
-      setError(err.message || 'Could not record order. Please try again.');
-      return false;
-    } finally {
-      setIsCreatingOrder(false);
-    }
-  }, [orderCreated, isCreatingOrder, mobileNumber, selectedOperator, operator.name, selectedPlan, amount, activeMode, selectedPaymentMethod, activeUpiId, orderRef]);
+    inFlightPromiseRef.current = createPromise;
+    return createPromise;
+  }, []);
 
-  // Automatically ensure order is recorded when QR panel is viewed
+  // Automatically ensure order is recorded when payment modal opens (both App and QR modes)
   useEffect(() => {
-    if (isOpen && activeMode === 'qr' && orderRef && !orderCreated) {
-      ensureOrderCreated();
+    if (isOpen && orderRef && orderCreatedRef.current !== orderRef) {
+      ensureOrderCreated(orderRef);
     }
-  }, [isOpen, activeMode, orderRef, orderCreated, ensureOrderCreated]);
+  }, [isOpen, orderRef, ensureOrderCreated]);
 
-  // Open App Button Handler: launches app AND starts 2-minute countdown
-  const handleOpenUPIApp = async () => {
-    await ensureOrderCreated();
+  // Open App Button Handler: launches app AND starts 3.5-minute countdown
+  const handleOpenUPIApp = () => {
+    // Record order in backend in background if not already recorded
+    ensureOrderCreated(orderRef).catch((err) => console.warn('Order record notice:', err));
 
     // Track app payment click immediately
     const trackingOpt: TrackablePaymentOption = selectedPaymentMethod === 'paytm' ? 'paytm' : 'phonepe';
@@ -201,15 +247,17 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
     setAppPaymentStarted(true);
     setAppSecondsRemaining(210);
 
-    const upiUri = generateUPIUri({ amount, orderId: orderRef, note: `${operator.name} Recharge`, upiId: activeUpiId });
+    // Generate targeted deep link for PhonePe / Paytm on Android & iOS
+    const appType: 'phonepe' | 'paytm' = selectedPaymentMethod === 'paytm' ? 'paytm' : 'phonepe';
+    const appDeepLink = generateAppDeepLink(appType, {
+      amount,
+      orderId: orderRef,
+      note: `${operator.name} Recharge`,
+      upiId: activeUpiId,
+    });
 
-    // Open link
-    const link = document.createElement('a');
-    link.href = upiUri;
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Launch target UPI app directly within user gesture
+    window.location.href = appDeepLink;
   };
 
   // Copy UPI ID
@@ -230,6 +278,9 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
       localStorage.removeItem(`app_payment_start_${orderRef}`);
       localStorage.removeItem(`qr_session_start_${orderRef}`);
     }
+    orderCreatedRef.current = null;
+    inFlightPromiseRef.current = null;
+    setOrderCreated(false);
     onClose();
     resetRecharge();
   };

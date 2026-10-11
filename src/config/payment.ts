@@ -56,34 +56,87 @@ export function generateUPIUri(params: {
     upiParams.set('mc', PAYMENT_CONFIG.merchantCode);
   }
 
-  return `upi://pay?${upiParams.toString()}`;
+  const queryString = preserveUpiIdAt(upiParams.toString());
+  return `upi://pay?${queryString}`;
+}
+
+/**
+ * Preserves the literal '@' in the `pa` (payee VPA) parameter of a query string
+ * without globally decoding the string or altering any other encoded parameters.
+ */
+function preserveUpiIdAt(queryString: string): string {
+  return queryString.replace(/(^|&)pa=([^&]*)/, (_, prefix, paValue) => {
+    return `${prefix}pa=${paValue.replace(/%40/g, '@')}`;
+  });
+}
+
+/** Detect iOS devices */
+export function isIOS(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  );
+}
+
+/** Detect Android devices */
+export function isAndroid(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  return /Android/i.test(navigator.userAgent);
 }
 
 /**
  * Generate a deep link for specific payment apps.
- * Falls back to generic upi:// if app-specific routing is unsupported.
+ * Explicitly targets PhonePe (com.phonepe.app / phonepe://) and Paytm (net.one97.paytm / paytmmp://)
+ * to prevent WhatsApp (which registers generic upi://) from intercepting the link on Android and iOS.
  */
 export function generateAppDeepLink(
   app: 'phonepe' | 'paytm' | 'gpay' | 'generic',
   params: { amount: number; orderId: string; note?: string; upiId?: string }
 ): string {
-  const baseUri = generateUPIUri(params);
+  const { amount, orderId, note, upiId } = params;
 
-  // Some apps register custom schemes; however, the standard upi:// scheme
-  // is universally supported and lets the OS/browser route to the installed app.
-  // Using app-specific schemes may fail if the app isn't installed.
+  const upiParams = new URLSearchParams({
+    pa: upiId || PAYMENT_CONFIG.upiId,
+    pn: PAYMENT_CONFIG.payeeName,
+    am: amount.toFixed(2),
+    cu: PAYMENT_CONFIG.currency,
+    tn: note || `Recharge Order ${orderId}`,
+    tr: orderId,
+  });
+
+  if (PAYMENT_CONFIG.merchantCode) {
+    upiParams.set('mc', PAYMENT_CONFIG.merchantCode);
+  }
+
+  const queryString = preserveUpiIdAt(upiParams.toString());
+  const android = isAndroid();
+
   switch (app) {
     case 'phonepe':
-      // PhonePe supports standard upi:// links on Android; on iOS it uses phonepe://
-      return baseUri;
+      if (android) {
+        // Explicitly targets the PhonePe package on Android to prevent WhatsApp from capturing upi://
+        return `intent://pay?${queryString}#Intent;scheme=upi;package=com.phonepe.app;end`;
+      }
+      // On iOS, PhonePe registers phonepe://; generic upi:// is captured by WhatsApp
+      return `phonepe://pay?${queryString}`;
+
     case 'paytm':
-      // Paytm supports standard upi:// links
-      return baseUri;
+      if (android) {
+        // Explicitly targets the Paytm package on Android
+        return `intent://pay?${queryString}#Intent;scheme=upi;package=net.one97.paytm;end`;
+      }
+      // On iOS, Paytm registers paytmmp://
+      return `paytmmp://pay?${queryString}`;
+
     case 'gpay':
-      // Google Pay supports standard upi:// links
-      return baseUri;
+      if (android) {
+        return `intent://pay?${queryString}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;end`;
+      }
+      return `gpay://upi/pay?${queryString}`;
+
     default:
-      return baseUri;
+      return `upi://pay?${queryString}`;
   }
 }
 
