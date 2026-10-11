@@ -40,6 +40,8 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
   const [error, setError] = useState<string>('');
   const [supportContact, setSupportContact] = useState<string>('');
   const [upiCopied, setUpiCopied] = useState(false);
+  const [activeUpiId, setActiveUpiId] = useState<string>(PAYMENT_CONFIG.upiId);
+  const [activeQrCodeUrl, setActiveQrCodeUrl] = useState<string>(PAYMENT_CONFIG.qrCodePath);
 
   // App Payment Flow: 3.5-minute (210s) countdown state (starts ONLY when button is clicked)
   const [appPaymentStarted, setAppPaymentStarted] = useState(false);
@@ -60,13 +62,21 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
     }
   }, [isOpen, selectedPaymentMethod]);
 
-  // Fetch website settings for support contact
+  // Fetch website settings for support contact, upiId, and qrCodeUrl
   useEffect(() => {
     fetch('/api/settings')
       .then((res) => res.json())
       .then((data) => {
-        if (data.success && data.settings?.customerSupportContact) {
-          setSupportContact(data.settings.customerSupportContact);
+        if (data.success && data.settings) {
+          if (data.settings.customerSupportContact) {
+            setSupportContact(data.settings.customerSupportContact);
+          }
+          if (data.settings.upiId) {
+            setActiveUpiId(data.settings.upiId);
+          }
+          if (data.settings.qrCodeUrl) {
+            setActiveQrCodeUrl(data.settings.qrCodeUrl);
+          }
         }
       })
       .catch(() => {});
@@ -150,7 +160,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
               }
             : {},
           paymentMethod: activeMode === 'qr' ? 'qr' : selectedPaymentMethod,
-          upiId: PAYMENT_CONFIG.upiId,
+          upiId: activeUpiId,
           orderRef,
         }),
       });
@@ -168,7 +178,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
     } finally {
       setIsCreatingOrder(false);
     }
-  }, [orderCreated, isCreatingOrder, mobileNumber, selectedOperator, operator.name, selectedPlan, amount, activeMode, selectedPaymentMethod, orderRef]);
+  }, [orderCreated, isCreatingOrder, mobileNumber, selectedOperator, operator.name, selectedPlan, amount, activeMode, selectedPaymentMethod, activeUpiId, orderRef]);
 
   // Automatically ensure order is recorded when QR panel is viewed
   useEffect(() => {
@@ -191,7 +201,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
     setAppPaymentStarted(true);
     setAppSecondsRemaining(210);
 
-    const upiUri = generateUPIUri({ amount, orderId: orderRef, note: `${operator.name} Recharge` });
+    const upiUri = generateUPIUri({ amount, orderId: orderRef, note: `${operator.name} Recharge`, upiId: activeUpiId });
 
     // Open link
     const link = document.createElement('a');
@@ -205,7 +215,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
   // Copy UPI ID
   const handleCopyUPI = async () => {
     try {
-      await navigator.clipboard.writeText(PAYMENT_CONFIG.upiId);
+      await navigator.clipboard.writeText(activeUpiId);
       setUpiCopied(true);
       setTimeout(() => setUpiCopied(false), 2500);
     } catch {
@@ -298,13 +308,18 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
           {/* ======================================================== */}
           {activeMode === 'qr' ? (
             <div className="space-y-4">
-              <QRPaymentPanel amount={amount} orderRef={orderRef} supportContact={supportContact} />
+              <QRPaymentPanel
+                amount={amount}
+                orderRef={orderRef}
+                supportContact={supportContact}
+                qrCodeUrl={activeQrCodeUrl}
+              />
 
               {/* UPI ID Copy for flexibility */}
               <div className="flex items-center justify-between bg-slate-50 rounded-2xl border border-slate-200 p-3 text-xs">
                 <div>
                   <div className="text-[10px] text-[#71809A] font-semibold uppercase tracking-wider">UPI ID</div>
-                  <div className="font-mono font-bold text-slate-800">{PAYMENT_CONFIG.upiId}</div>
+                  <div className="font-mono font-bold text-slate-800">{activeUpiId}</div>
                 </div>
                 <button
                   type="button"

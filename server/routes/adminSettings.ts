@@ -28,12 +28,70 @@ adminSettingsRouter.get('/', (_req, res) => {
   }
 });
 
+import fs from 'fs';
+import path from 'path';
+
+// Helper to validate UPI ID format
+function isValidUpiId(id: string): boolean {
+  return /^[a-zA-Z0-9.\-_]{2,100}@[a-zA-Z0-9.\-_]{2,50}$/.test(id.trim());
+}
+
+// Allowed MIME types for uploaded QR images
+const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_BASE64_BYTES = 5 * 1024 * 1024; // 5 MB
+
 // PUT /api/admin/settings - Update settings (Owner & Manager)
 adminSettingsRouter.put('/', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
   try {
     const updates = req.body;
     if (!updates || typeof updates !== 'object') {
       return res.status(400).json({ error: 'Invalid settings payload.' });
+    }
+
+    // Validate UPI ID if provided
+    if ('upi_id' in updates) {
+      const upi = String(updates.upi_id || '').trim();
+      if (!upi) {
+        return res.status(400).json({ error: 'UPI ID cannot be empty.' });
+      }
+      if (!isValidUpiId(upi)) {
+        return res.status(400).json({ error: 'Invalid UPI ID format. Expected format: username@bank (e.g. user@ybl).' });
+      }
+      updates.upi_id = upi;
+    }
+
+    // Validate QR Code image if provided
+    if ('qr_code_url' in updates) {
+      const qrVal = String(updates.qr_code_url || '').trim();
+      if (!qrVal) {
+        return res.status(400).json({ error: 'QR Code image cannot be empty.' });
+      }
+
+      if (qrVal.startsWith('data:')) {
+        const mimeMatch = qrVal.match(/^data:([^;]+);base64,/);
+        if (!mimeMatch) {
+          return res.status(400).json({ error: 'Invalid image data URI format.' });
+        }
+        const mime = mimeMatch[1].toLowerCase();
+        const normalizedMime = mime === 'image/jpg' ? 'image/jpeg' : mime;
+        if (!ALLOWED_IMAGE_MIMES.includes(normalizedMime)) {
+          return res.status(400).json({ error: 'Unsupported image format. Please upload JPEG, PNG, or WebP.' });
+        }
+
+        const base64Data = qrVal.replace(/^data:[^;]+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        if (buffer.length > MAX_BASE64_BYTES) {
+          return res.status(400).json({ error: 'Image file size exceeds the maximum limit of 5MB.' });
+        }
+
+        // Optionally synchronize to public/assets/upi-qr.jpg
+        try {
+          const publicQrPath = path.join(process.cwd(), 'public', 'assets', 'upi-qr.jpg');
+          fs.writeFileSync(publicQrPath, buffer);
+        } catch (fsErr) {
+          console.warn('[ADMIN_SETTINGS] Notice: Could not sync to public/assets/upi-qr.jpg (persisted in database):', fsErr);
+        }
+      }
     }
 
     const now = new Date().toISOString();

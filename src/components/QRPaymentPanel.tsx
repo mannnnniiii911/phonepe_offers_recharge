@@ -6,9 +6,11 @@ interface QRPaymentPanelProps {
   amount: number;
   orderRef: string;
   supportContact?: string;
+  qrCodeUrl?: string;
 }
 
-export const QRPaymentPanel: React.FC<QRPaymentPanelProps> = ({ amount, orderRef, supportContact }) => {
+export const QRPaymentPanel: React.FC<QRPaymentPanelProps> = ({ amount, orderRef, supportContact, qrCodeUrl }) => {
+  const activeQrPath = qrCodeUrl || PAYMENT_CONFIG.qrCodePath;
   const [secondsRemaining, setSecondsRemaining] = useState<number>(300);
   const [sessionStartTime, setSessionStartTime] = useState<number>(() => {
     const stored = localStorage.getItem(`qr_session_start_${orderRef}`);
@@ -62,7 +64,7 @@ export const QRPaymentPanel: React.FC<QRPaymentPanelProps> = ({ amount, orderRef
   // Save/Download QR image
   const handleSaveQR = () => {
     const anchor = document.createElement('a');
-    anchor.href = PAYMENT_CONFIG.qrCodePath;
+    anchor.href = activeQrPath;
     anchor.download = `recharge-qr-₹${amount}.jpg`;
     document.body.appendChild(anchor);
     anchor.click();
@@ -125,7 +127,7 @@ export const QRPaymentPanel: React.FC<QRPaymentPanelProps> = ({ amount, orderRef
       <div className="flex justify-center pt-1 pb-1">
         <div className="p-2.5 bg-white rounded-2xl border border-purple-200/80 shadow-sm flex items-center justify-center">
           <img
-            src={PAYMENT_CONFIG.qrCodePath}
+            src={activeQrPath}
             alt={`UPI Payment QR Code for ₹${amount}`}
             className="w-48 h-48 sm:w-52 sm:h-52 object-contain rounded-xl"
           />

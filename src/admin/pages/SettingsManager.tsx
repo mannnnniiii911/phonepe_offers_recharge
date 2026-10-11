@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   UserCheck,
   Headphones,
+  QrCode,
 } from 'lucide-react';
 import { adminApi } from '../api';
 import { useAdminAuth } from '../context/AdminAuthContext';
@@ -32,6 +33,14 @@ export const SettingsManager: React.FC = () => {
   const [supportContact, setSupportContact] = useState('');
   const [isSavingSupport, setIsSavingSupport] = useState(false);
 
+  // Payment Settings (UPI ID & QR Code)
+  const [upiId, setUpiId] = useState('q462939567@ybl');
+  const [currentQrUrl, setCurrentQrUrl] = useState('/assets/upi-qr.jpg');
+  const [previewQrUrl, setPreviewQrUrl] = useState<string | null>(null);
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+
   // Add User Modal
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
   const [newUsername, setNewUsername] = useState('');
@@ -45,6 +54,12 @@ export const SettingsManager: React.FC = () => {
       const res = await adminApi.getSettings();
       if (res.success && res.settings) {
         setSupportContact(res.settings.customer_support_contact || res.settings.support_contact || '');
+        if (res.settings.upi_id) {
+          setUpiId(res.settings.upi_id);
+        }
+        if (res.settings.qr_code_url) {
+          setCurrentQrUrl(res.settings.qr_code_url);
+        }
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -83,6 +98,78 @@ export const SettingsManager: React.FC = () => {
       setError(err.message || 'Failed to update customer support contact.');
     } finally {
       setIsSavingSupport(false);
+    }
+  };
+
+  const handleQrFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPaymentError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate MIME type (JPEG, PNG, WebP)
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      setPaymentError('Invalid file format. Please upload a JPEG, PNG, or WebP image.');
+      e.target.value = '';
+      return;
+    }
+
+    // Validate file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      setPaymentError('Image size exceeds 2MB limit. Please choose an image smaller than 2MB.');
+      e.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setPreviewQrUrl(reader.result);
+      }
+    };
+    reader.onerror = () => {
+      setPaymentError('Failed to read image file. Please try again.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSavePaymentSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPaymentError(null);
+    setPaymentSuccess(null);
+
+    const cleanUpi = upiId.trim();
+    if (!cleanUpi) {
+      setPaymentError('UPI ID cannot be empty.');
+      return;
+    }
+
+    if (!cleanUpi.includes('@') || cleanUpi.length < 4) {
+      setPaymentError('Please enter a valid UPI ID (e.g. username@bank).');
+      return;
+    }
+
+    setIsSavingPayment(true);
+    try {
+      const payload: Record<string, string> = {
+        upi_id: cleanUpi,
+      };
+      if (previewQrUrl) {
+        payload.qr_code_url = previewQrUrl;
+      }
+
+      await adminApi.updateSettings(payload);
+
+      if (previewQrUrl) {
+        setCurrentQrUrl(previewQrUrl);
+        setPreviewQrUrl(null);
+      }
+      setPaymentSuccess('Payment settings updated successfully! Checkout page is now using the updated UPI ID and QR code.');
+      setTimeout(() => setPaymentSuccess(null), 5000);
+    } catch (err: any) {
+      setPaymentError(err.message || 'Failed to update payment settings.');
+    } finally {
+      setIsSavingPayment(false);
     }
   };
 
@@ -174,6 +261,133 @@ export const SettingsManager: React.FC = () => {
           <span>{error}</span>
         </div>
       )}
+
+      {/* Payment Settings Configuration */}
+      <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <QrCode className="w-4 h-4 text-[#6426AD]" />
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+              Payment Settings
+            </h2>
+          </div>
+          <span className="text-[11px] font-semibold bg-purple-50 text-[#6426AD] px-2.5 py-0.5 rounded-full border border-purple-200">
+            UPI ID & QR Code Management
+          </span>
+        </div>
+
+        {paymentSuccess && (
+          <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm font-semibold flex items-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span>{paymentSuccess}</span>
+          </div>
+        )}
+
+        {paymentError && (
+          <div className="p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-xs sm:text-sm font-semibold flex items-center gap-2 animate-in fade-in">
+            <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
+            <span>{paymentError}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSavePaymentSettings} className="space-y-4">
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Manage the payment receiving UPI ID and QR code displayed on the checkout page. Any changes saved here update customer checkout payments immediately without redeployment.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+            {/* UPI ID Field */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Receiver UPI ID
+              </label>
+              <input
+                type="text"
+                value={upiId}
+                onChange={(e) => setUpiId(e.target.value)}
+                placeholder="e.g. q462939567@ybl"
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#6426AD]"
+              />
+              <p className="text-[11px] text-slate-500">
+                Encoded into PhonePe & Paytm payment deep links and displayed to customers on checkout.
+              </p>
+            </div>
+
+            {/* QR Code Upload Field */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Upload New QR Code Image
+              </label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleQrFileChange}
+                className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-purple-100 file:text-[#6426AD] hover:file:bg-purple-200 file:cursor-pointer bg-slate-50 border border-slate-200 rounded-xl p-1.5 focus:outline-none"
+              />
+              <p className="text-[11px] text-slate-500">
+                Supported formats: PNG, JPEG, WebP. Maximum file size: 2MB.
+              </p>
+            </div>
+          </div>
+
+          {/* QR Code Preview Card */}
+          <div className="pt-1">
+            <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 flex flex-col sm:flex-row items-center gap-4">
+              <div className="w-32 h-32 bg-white rounded-xl border border-slate-200 flex items-center justify-center p-2 flex-shrink-0 shadow-sm">
+                <img
+                  src={previewQrUrl || currentQrUrl}
+                  alt="Payment QR Code Preview"
+                  className="w-full h-full object-contain rounded-lg"
+                />
+              </div>
+              <div className="space-y-1.5 text-center sm:text-left flex-1">
+                <div className="flex items-center justify-center sm:justify-start gap-2">
+                  <span className="text-xs font-bold text-slate-800">
+                    {previewQrUrl ? 'New QR Code Selected (Unsaved Preview)' : 'Current Active QR Code'}
+                  </span>
+                  {previewQrUrl && (
+                    <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300">
+                      Pending Save
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  {previewQrUrl
+                    ? 'Click "Save Payment Settings" below to persist this QR code and immediately update the checkout page.'
+                    : 'This QR code is currently visible to customers on the checkout page.'}
+                </p>
+                {previewQrUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewQrUrl(null)}
+                    className="text-xs text-rose-600 hover:text-rose-700 font-semibold underline cursor-pointer"
+                  >
+                    Discard selection and keep current QR
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Save Button */}
+          <div className="flex justify-end pt-2">
+            <button
+              type="submit"
+              disabled={isSavingPayment}
+              className="px-6 py-2.5 bg-[#6426AD] hover:bg-[#521E90] text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-colors cursor-pointer disabled:opacity-60 flex items-center gap-2"
+            >
+              {isSavingPayment ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Saving Payment Settings...</span>
+                </>
+              ) : (
+                <span>Save Payment Settings</span>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
 
       {/* Customer Support Contact Configuration */}
       <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">

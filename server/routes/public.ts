@@ -133,6 +133,8 @@ publicRouter.get('/settings', (_req, res) => {
         privacyNoticeText: settings.privacy_notice_text || 'By entering your number, you consent to processing your mobile number and operator for recharge estimation.',
         privacyNoticeVersion: settings.privacy_notice_version || 'v1.0',
         customerSupportContact: settings.customer_support_contact || settings.support_contact || '',
+        upiId: settings.upi_id || 'q462939567@ybl',
+        qrCodeUrl: settings.qr_code_url || '/assets/upi-qr.jpg',
       },
     });
   } catch (err) {

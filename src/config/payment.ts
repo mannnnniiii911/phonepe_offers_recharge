@@ -39,11 +39,12 @@ export function generateUPIUri(params: {
   amount: number;
   orderId: string;
   note?: string;
+  upiId?: string;
 }): string {
-  const { amount, orderId, note } = params;
+  const { amount, orderId, note, upiId } = params;
 
   const upiParams = new URLSearchParams({
-    pa: PAYMENT_CONFIG.upiId,
+    pa: upiId || PAYMENT_CONFIG.upiId,
     pn: PAYMENT_CONFIG.payeeName,
     am: amount.toFixed(2),
     cu: PAYMENT_CONFIG.currency,
@@ -64,7 +65,7 @@ export function generateUPIUri(params: {
  */
 export function generateAppDeepLink(
   app: 'phonepe' | 'paytm' | 'gpay' | 'generic',
-  params: { amount: number; orderId: string; note?: string }
+  params: { amount: number; orderId: string; note?: string; upiId?: string }
 ): string {
   const baseUri = generateUPIUri(params);
 
