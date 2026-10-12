@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db';
 import crypto from 'crypto';
+import { getPersistentPaymentSettings, isSupabasePaymentSettingsConfigured } from '../supabasePaymentSettings';
 
 export const publicRouter = Router();
 
@@ -112,13 +113,15 @@ publicRouter.get('/offers/active', (_req, res) => {
 });
 
 // GET /api/settings - public settings for headline, banner, and notice
-publicRouter.get('/settings', (_req, res) => {
+publicRouter.get('/settings', async (_req, res) => {
   try {
     const rows = db.prepare(`SELECT setting_key, setting_value FROM website_settings`).all() as { setting_key: string; setting_value: string }[];
     const settings: Record<string, string> = {};
     for (const row of rows) {
       settings[row.setting_key] = row.setting_value;
     }
+
+    if (isSupabasePaymentSettingsConfigured()) Object.assign(settings, await getPersistentPaymentSettings());
 
     res.json({
       success: true,
