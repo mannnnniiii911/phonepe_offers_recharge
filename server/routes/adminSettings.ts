@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import { db } from '../db';
 import { requireAuth, requireRole, logAudit, type AuthenticatedRequest } from '../auth';
+import { getPersistentPaymentSettings, isSupabasePaymentSettingsConfigured, savePersistentPaymentSettings, uploadPaymentQr } from '../supabasePaymentSettings';
 
 export const adminSettingsRouter = Router();
 
 adminSettingsRouter.use(requireAuth);
 
 // GET /api/admin/settings - Get all settings
-adminSettingsRouter.get('/', (_req, res) => {
+adminSettingsRouter.get('/', async (_req, res) => {
   try {
     const rows = db.prepare('SELECT setting_key, setting_value, updated_at, updated_by FROM website_settings').all() as Array<{
       setting_key: string;
@@ -21,6 +22,7 @@ adminSettingsRouter.get('/', (_req, res) => {
       settings[r.setting_key] = r.setting_value;
     }
 
+    if (isSupabasePaymentSettingsConfigured()) Object.assign(settings, await getPersistentPaymentSettings());
     res.json({ success: true, settings });
   } catch (err) {
     console.error('[ADMIN_API_ERROR] GET /settings:', err);
