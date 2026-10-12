@@ -43,7 +43,7 @@ const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_BASE64_BYTES = 5 * 1024 * 1024; // 5 MB
 
 // PUT /api/admin/settings - Update settings (Owner & Manager)
-adminSettingsRouter.put('/', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
+adminSettingsRouter.put('/', requireRole(['owner', 'manager']), async (req: AuthenticatedRequest, res) => {
   try {
     const updates = req.body;
     if (!updates || typeof updates !== 'object') {
@@ -98,6 +98,17 @@ adminSettingsRouter.put('/', requireRole(['owner', 'manager']), (req: Authentica
 
     const now = new Date().toISOString();
     const adminUser = req.admin?.username || 'admin';
+
+    if (isSupabasePaymentSettingsConfigured() && typeof updates.qr_code_url === 'string' && updates.qr_code_url.startsWith('data:')) {
+      updates.qr_code_url = await uploadPaymentQr(updates.qr_code_url);
+    }
+    const paymentUpdates: Record<string, string> = {};
+    for (const key of ['upi_id', 'qr_code_url']) {
+      if (key in updates && typeof updates[key] === 'string') paymentUpdates[key] = updates[key];
+    }
+    if (isSupabasePaymentSettingsConfigured() && Object.keys(paymentUpdates).length) {
+      await savePersistentPaymentSettings(paymentUpdates, adminUser);
+    }
 
     const upsertStmt = db.prepare(`
       INSERT INTO website_settings (setting_key, setting_value, updated_at, updated_by)
