@@ -132,6 +132,9 @@ adminSettingsRouter.put('/', requireRole(['owner', 'manager']), async (req: Auth
     res.json({ success: true, message: 'Settings updated successfully.' });
   } catch (err) {
     console.error('[ADMIN_API_ERROR] PUT /settings:', err);
-    res.status(500).json({ error: 'Failed to update settings' });
+    // Return a bounded diagnostic to authenticated admins so configuration/API failures
+    // can be identified from the Admin Panel without exposing stack traces.
+    const detail = err instanceof Error ? err.message.slice(0, 300) : 'Unknown server error';
+    res.status(500).json({ error: `Failed to update settings: ${detail}` });
   }
 });
