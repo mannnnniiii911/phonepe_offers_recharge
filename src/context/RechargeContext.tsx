@@ -41,7 +41,7 @@ export const RechargeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Selected payment method: restore from sessionStorage if available
   const [selectedPaymentMethod, setSelectedPaymentMethodState] = useState<PaymentMethodId>(() => {
     const stored = sessionStorage.getItem(STORAGE_KEYS.PAYMENT_METHOD);
-    if (stored === 'phonepe' || stored === 'paytm' || stored === 'qr') return stored;
+    if (stored === 'phonepe' || stored === 'paytm' || stored === 'gpay' || stored === 'navi' || stored === 'axis' || stored === 'qr') return stored;
     return 'phonepe';
   });
 
