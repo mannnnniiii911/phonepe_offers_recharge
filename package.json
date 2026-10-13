@@ -10,7 +10,8 @@
     "setup-admin": "tsx server/seedAdmin.ts",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:migrate:postgres": "tsx server/migratePostgres.ts"
   },
   "dependencies": {
     "@types/canvas-confetti": "^1.9.0",
