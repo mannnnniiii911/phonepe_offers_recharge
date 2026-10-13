@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { db } from './db';
 import crypto from 'crypto';
+import { postgresQuery } from './postgres';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'antigravity-phonepe-admin-supersecret-jwt-key-2026';
 const TOKEN_EXPIRY = '8h';
@@ -12,163 +12,82 @@ export interface AdminPayload {
   email: string;
   role: 'owner' | 'manager' | 'viewer';
 }
+export interface AuthenticatedRequest extends Request { admin?: AdminPayload; }
 
-export interface AuthenticatedRequest extends Request {
-  admin?: AdminPayload;
-}
-
-// Generate Auth Token
 export function generateToken(payload: AdminPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: TOKEN_EXPIRY });
 }
-
-// Set HttpOnly Cookie
 export function setAuthCookie(res: Response, token: string) {
-  res.cookie('admin_token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 8 * 60 * 60 * 1000, // 8 hours
-    path: '/',
-  });
+  res.cookie('admin_token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 8 * 60 * 60 * 1000, path: '/' });
 }
-
-// Clear Auth Cookie
 export function clearAuthCookie(res: Response) {
-  res.clearCookie('admin_token', {
-    httpOnly: true,
-    sameSite: 'lax',
-    path: '/',
-  });
+  res.clearCookie('admin_token', { httpOnly: true, sameSite: 'lax', path: '/' });
 }
 
-// Authentication Middleware
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  // Support either HttpOnly cookie or Authorization: Bearer header
+// PostgreSQL middleware must finish the database check before allowing the request through.
+export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   let token = req.cookies?.admin_token;
-  if (!token && req.headers.authorization?.startsWith('Bearer ')) {
-    token = req.headers.authorization.split(' ')[1];
-  }
-
-  if (!token) {
-    return res.status(401).json({ error: 'Authentication required. Please log in.' });
-  }
-
+  if (!token && req.headers.authorization?.startsWith('Bearer ')) token = req.headers.authorization.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Authentication required. Please log in.' });
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as AdminPayload;
-
-    // Verify user still exists and is active in database
-    const user = db.prepare('SELECT id, username, email, role, status FROM admin_users WHERE id = ?').get(decoded.id) as {
-      id: string;
-      username: string;
-      email: string;
-      role: 'owner' | 'manager' | 'viewer';
-      status: string;
-    } | undefined;
-
-    if (!user || user.status !== 'active') {
-      return res.status(401).json({ error: 'User account inactive or session invalid.' });
-    }
-
-    req.admin = {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-    };
-    next();
-  } catch {
+    const result = await postgresQuery<{id:string; username:string; email:string; role:AdminPayload['role']; status:string}>(
+      'SELECT id, username, email, role, status FROM admin_users WHERE id = $1 LIMIT 1', [decoded.id]
+    );
+    const user = result.rows[0];
+    if (!user || user.status !== 'active') return res.status(401).json({ error: 'User account inactive or session invalid.' });
+    req.admin = { id:user.id, username:user.username, email:user.email, role:user.role };
+    return next();
+  } catch (err) {
+    console.error('[AUTH_ERROR] PostgreSQL authentication check failed:', err);
     return res.status(401).json({ error: 'Session expired or invalid. Please log in again.' });
   }
 }
 
-// Role Authorization Middleware
 export function requireRole(allowedRoles: ('owner' | 'manager' | 'viewer')[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    if (!req.admin) {
-      return res.status(401).json({ error: 'Authentication required.' });
-    }
-
-    if (!allowedRoles.includes(req.admin.role)) {
-      return res.status(403).json({
-        error: `Permission denied. Required role: ${allowedRoles.join(' or ')}. Your role: ${req.admin.role}.`,
-      });
-    }
-
-    next();
+    if (!req.admin) return res.status(401).json({ error: 'Authentication required.' });
+    if (!allowedRoles.includes(req.admin.role)) return res.status(403).json({ error: `Permission denied. Required role: ${allowedRoles.join(' or ')}. Your role: ${req.admin.role}.` });
+    return next();
   };
 }
 
-// Log Audit Action
-export function logAudit(
-  admin: { id: string; username: string } | undefined,
-  action: string,
-  entityType: string,
-  entityId: string,
-  summary: string,
-  req?: Request
-) {
+export async function logAudit(admin: { id: string; username: string } | undefined, action: string, entityType: string, entityId: string, summary: string, req?: Request) {
   const adminId = admin?.id || 'system';
   const adminUsername = admin?.username || 'system';
-  const ip = (req?.headers['x-forwarded-for'] as string) || req?.socket?.remoteAddress || '127.0.0.1';
-  const now = new Date().toISOString();
-  const id = 'audit-' + crypto.randomUUID();
-
+  const forwarded = req?.headers['x-forwarded-for'];
+  const ip = (Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]) || req?.socket?.remoteAddress || '127.0.0.1';
   try {
-    db.prepare(`
-      INSERT INTO admin_audit_logs (id, admin_id, admin_username, action, entity_type, entity_id, summary, ip_address, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, adminId, adminUsername, action, entityType, entityId, summary, ip, now);
-  } catch (err) {
-    console.error('[AUDIT_ERROR] Failed to write audit log:', err);
-  }
-}
-
-// Brute-force Login Rate Limiter (5 attempts per 15 minutes)
-export function checkLoginRateLimit(ip: string): { allowed: boolean; retryAfterSeconds?: number } {
-  const now = Date.now();
-  const record = db.prepare('SELECT attempts, last_attempt, blocked_until FROM login_attempts WHERE ip = ?').get(ip) as {
-    attempts: number;
-    last_attempt: number;
-    blocked_until: number;
-  } | undefined;
-
-  if (record) {
-    if (record.blocked_until > now) {
-      const waitSec = Math.ceil((record.blocked_until - now) / 1000);
-      return { allowed: false, retryAfterSeconds: waitSec };
-    }
-
-    // Reset attempts if last attempt was > 15 minutes ago
-    if (now - record.last_attempt > 15 * 60 * 1000) {
-      db.prepare('UPDATE login_attempts SET attempts = 0, last_attempt = ?, blocked_until = 0 WHERE ip = ?').run(now, ip);
-    }
-  }
-
-  return { allowed: true };
-}
-
-export function recordFailedLogin(ip: string) {
-  const now = Date.now();
-  const record = db.prepare('SELECT attempts FROM login_attempts WHERE ip = ?').get(ip) as { attempts: number } | undefined;
-
-  if (!record) {
-    db.prepare('INSERT INTO login_attempts (ip, attempts, last_attempt, blocked_until) VALUES (?, 1, ?, 0)').run(ip, now);
-  } else {
-    const newAttempts = record.attempts + 1;
-    let blockedUntil = 0;
-    if (newAttempts >= 5) {
-      blockedUntil = now + 15 * 60 * 1000; // 15 minute lock
-    }
-    db.prepare('UPDATE login_attempts SET attempts = ?, last_attempt = ?, blocked_until = ? WHERE ip = ?').run(
-      newAttempts,
-      now,
-      blockedUntil,
-      ip
+    await postgresQuery(
+      'INSERT INTO admin_audit_logs (id, admin_id, admin_username, action, entity_type, entity_id, summary, ip_address, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING',
+      ['audit-' + crypto.randomUUID(), adminId, adminUsername, action, entityType, entityId, summary, ip, new Date().toISOString()]
     );
-  }
+  } catch (err) { console.error('[AUDIT_ERROR] Failed to write PostgreSQL audit log:', err); }
 }
 
-export function resetLoginRateLimit(ip: string) {
-  db.prepare('DELETE FROM login_attempts WHERE ip = ?').run(ip);
+type LoginAttempt = { attempts: number; last_attempt: number; blocked_until: number };
+export async function checkLoginRateLimit(ip: string): Promise<{allowed:boolean; retryAfterSeconds?:number}> {
+  const now = Date.now();
+  const result = await postgresQuery<LoginAttempt>('SELECT attempts, last_attempt, blocked_until FROM login_attempts WHERE ip = $1', [ip]);
+  const record = result.rows[0];
+  if (record) {
+    if (Number(record.blocked_until) > now) return { allowed:false, retryAfterSeconds:Math.ceil((Number(record.blocked_until)-now)/1000) };
+    if (now - Number(record.last_attempt) > 15 * 60 * 1000) {
+      await postgresQuery('UPDATE login_attempts SET attempts = 0, last_attempt = $1, blocked_until = 0 WHERE ip = $2', [now, ip]);
+    }
+  }
+  return { allowed:true };
+}
+export async function recordFailedLogin(ip: string): Promise<void> {
+  const now = Date.now();
+  await postgresQuery(
+    `INSERT INTO login_attempts (ip, attempts, last_attempt, blocked_until) VALUES ($1,1,$2,0)
+     ON CONFLICT (ip) DO UPDATE SET attempts = CASE WHEN $2 - login_attempts.last_attempt > 900000 THEN 1 ELSE login_attempts.attempts + 1 END,
+     last_attempt = $2,
+     blocked_until = CASE WHEN (CASE WHEN $2 - login_attempts.last_attempt > 900000 THEN 1 ELSE login_attempts.attempts + 1 END) >= 5 THEN $2 + 900000 ELSE 0 END`,
+    [ip, now]
+  );
+}
+export async function resetLoginRateLimit(ip: string): Promise<void> {
+  await postgresQuery('DELETE FROM login_attempts WHERE ip = $1', [ip]);
 }

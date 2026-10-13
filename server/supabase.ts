@@ -22,7 +22,7 @@ export async function recordSupabasePaymentClick(record: PaymentClickRecord): Pr
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
-    // Supabase credentials not configured in environment; local SQLite handles tracking reliably
+    // PostgreSQL is the primary event store; Supabase syncing is optional.
     return { synced: false };
   }
 

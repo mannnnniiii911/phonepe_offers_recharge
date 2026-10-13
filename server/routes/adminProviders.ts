@@ -1,203 +1,69 @@
 import { Router } from 'express';
-import { db } from '../db';
+import { postgresQuery } from '../postgres';
 import { requireAuth, requireRole, logAudit, type AuthenticatedRequest } from '../auth';
-import crypto from 'crypto';
 
-export const adminProvidersRouter = Router();
-
-// Apply auth to all admin provider routes
+export const adminProvidersRouter=Router();
 adminProvidersRouter.use(requireAuth);
 
-// GET /api/admin/providers - list all providers with associated plan counts
-adminProvidersRouter.get('/', (_req, res) => {
+adminProvidersRouter.get('/',async (_req,res)=>{
   try {
-    const providers = db.prepare(`
-      SELECT 
-        p.id, 
-        p.slug, 
-        p.name, 
-        p.brand_color as brandColor, 
-        p.badge_bg as badgeBg, 
-        p.text_color as textColor, 
-        p.tagline, 
-        p.logo_url as logoUrl, 
-        p.description, 
-        p.is_active as isActive, 
-        p.display_order as displayOrder, 
-        p.created_at as createdAt, 
-        p.updated_at as updatedAt,
-        (SELECT COUNT(*) FROM recharge_plans WHERE provider_id = p.id) as planCount
-      FROM network_providers p
-      ORDER BY p.display_order ASC, p.name ASC
-    `).all();
-
-    res.json({ success: true, providers });
-  } catch (err) {
-    console.error('[ADMIN_API_ERROR] GET /providers:', err);
-    res.status(500).json({ error: 'Failed to retrieve providers' });
-  }
+    const r=await postgresQuery(`SELECT p.id,p.slug,p.name,p.brand_color AS "brandColor",p.badge_bg AS "badgeBg",p.text_color AS "textColor",p.tagline,p.logo_url AS "logoUrl",p.description,p.is_active AS "isActive",p.display_order AS "displayOrder",p.created_at AS "createdAt",p.updated_at AS "updatedAt",(SELECT COUNT(*)::int FROM recharge_plans WHERE provider_id=p.id) AS "planCount" FROM network_providers p ORDER BY p.display_order,p.name`);
+    return res.json({success:true,providers:r.rows});
+  } catch(err){console.error('[ADMIN_API_ERROR] GET /providers:',err);return res.status(500).json({error:'Failed to retrieve providers'});}
 });
 
-// POST /api/admin/providers - Add provider
-adminProvidersRouter.post('/', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
+adminProvidersRouter.post('/',requireRole(['owner','manager']),async(req:AuthenticatedRequest,res)=>{
   try {
-    const { name, slug, brandColor, badgeBg, textColor, tagline, logoUrl, description, isActive, displayOrder } = req.body;
-
-    if (!name || !slug) {
-      return res.status(400).json({ error: 'Provider name and slug identifier are required.' });
-    }
-
-    const cleanSlug = slug.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '');
-
-    // Check slug uniqueness
-    const existing = db.prepare('SELECT id FROM network_providers WHERE slug = ?').get(cleanSlug);
-    if (existing) {
-      return res.status(400).json({ error: `Provider with identifier '${cleanSlug}' already exists.` });
-    }
-
-    const id = cleanSlug;
-    const now = new Date().toISOString();
-
-    db.prepare(`
-      INSERT INTO network_providers (id, slug, name, brand_color, badge_bg, text_color, tagline, logo_url, description, is_active, display_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      cleanSlug,
-      name.trim(),
-      brandColor || '#6426AD',
-      badgeBg || '#F2EAFE',
-      textColor || '#FFFFFF',
-      tagline || '',
-      logoUrl || '',
-      description || '',
-      isActive === false ? 0 : 1,
-      Number(displayOrder) || 0,
-      now,
-      now
-    );
-
-    logAudit(req.admin, 'PROVIDER_CREATE', 'PROVIDER', id, `Created new telecom provider '${name}' (${cleanSlug})`, req);
-
-    res.json({ success: true, message: 'Provider added successfully', id });
-  } catch (err) {
-    console.error('[ADMIN_API_ERROR] POST /providers:', err);
-    res.status(500).json({ error: 'Failed to create provider' });
-  }
+    const {name,slug,brandColor,badgeBg,textColor,tagline,logoUrl,description,isActive,displayOrder}=req.body??{};
+    if(!name||!slug)return res.status(400).json({error:'Provider name and slug identifier are required.'});
+    const cleanSlug=String(slug).toLowerCase().trim().replace(/[^a-z0-9_-]/g,'');
+    const existing=await postgresQuery('SELECT id FROM network_providers WHERE slug=$1',[cleanSlug]);
+    if(existing.rows.length)return res.status(400).json({error:`Provider with identifier '${cleanSlug}' already exists.`});
+    const now=new Date().toISOString();
+    await postgresQuery(`INSERT INTO network_providers (id,slug,name,brand_color,badge_bg,text_color,tagline,logo_url,description,is_active,display_order,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [cleanSlug,cleanSlug,String(name).trim(),brandColor||'#6426AD',badgeBg||'#F2EAFE',textColor||'#FFFFFF',tagline||'',logoUrl||'',description||'',isActive!==false,Number(displayOrder)||0,now,now]);
+    await logAudit(req.admin,'PROVIDER_CREATE','PROVIDER',cleanSlug,`Created new telecom provider '${name}' (${cleanSlug})`,req);
+    return res.json({success:true,message:'Provider added successfully',id:cleanSlug});
+  }catch(err){console.error('[ADMIN_API_ERROR] POST /providers:',err);return res.status(500).json({error:'Failed to create provider'});}
 });
 
-// PUT /api/admin/providers/:id - Edit provider
-adminProvidersRouter.put('/:id', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
-  try {
-    const { id } = req.params;
-    const { name, brandColor, badgeBg, textColor, tagline, logoUrl, description, isActive, displayOrder } = req.body;
-
-    const existing = db.prepare('SELECT id, name FROM network_providers WHERE id = ?').get(id) as { id: string; name: string } | undefined;
-    if (!existing) {
-      return res.status(404).json({ error: 'Provider not found.' });
-    }
-
-    const now = new Date().toISOString();
-
-    db.prepare(`
-      UPDATE network_providers
-      SET name = ?, brand_color = ?, badge_bg = ?, text_color = ?, tagline = ?, logo_url = ?, description = ?, is_active = ?, display_order = ?, updated_at = ?
-      WHERE id = ?
-    `).run(
-      name.trim(),
-      brandColor || '#6426AD',
-      badgeBg || '#F2EAFE',
-      textColor || '#FFFFFF',
-      tagline || '',
-      logoUrl || '',
-      description || '',
-      isActive === false ? 0 : 1,
-      Number(displayOrder) || 0,
-      now,
-      id
-    );
-
-    logAudit(req.admin, 'PROVIDER_UPDATE', 'PROVIDER', id, `Updated telecom provider '${name}'`, req);
-
-    res.json({ success: true, message: 'Provider updated successfully' });
-  } catch (err) {
-    console.error('[ADMIN_API_ERROR] PUT /providers/:id:', err);
-    res.status(500).json({ error: 'Failed to update provider' });
-  }
+adminProvidersRouter.put('/:id',requireRole(['owner','manager']),async(req:AuthenticatedRequest,res)=>{
+  try{
+    const {id}=req.params,{name,brandColor,badgeBg,textColor,tagline,logoUrl,description,isActive,displayOrder}=req.body??{};
+    const found=await postgresQuery<{id:string;name:string}>('SELECT id,name FROM network_providers WHERE id=$1',[id]);
+    if(!found.rows[0])return res.status(404).json({error:'Provider not found.'});
+    if(typeof name!=='string'||!name.trim())return res.status(400).json({error:'Provider name is required.'});
+    await postgresQuery(`UPDATE network_providers SET name=$1,brand_color=$2,badge_bg=$3,text_color=$4,tagline=$5,logo_url=$6,description=$7,is_active=$8,display_order=$9,updated_at=$10 WHERE id=$11`,
+      [name.trim(),brandColor||'#6426AD',badgeBg||'#F2EAFE',textColor||'#FFFFFF',tagline||'',logoUrl||'',description||'',isActive!==false,Number(displayOrder)||0,new Date().toISOString(),id]);
+    await logAudit(req.admin,'PROVIDER_UPDATE','PROVIDER',id,`Updated telecom provider '${name}'`,req);
+    return res.json({success:true,message:'Provider updated successfully'});
+  }catch(err){console.error('[ADMIN_API_ERROR] PUT /providers/:id:',err);return res.status(500).json({error:'Failed to update provider'});}
 });
 
-// PATCH /api/admin/providers/:id/toggle - Toggle active status
-adminProvidersRouter.patch('/:id/toggle', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
-  try {
-    const { id } = req.params;
-    const provider = db.prepare('SELECT id, name, is_active FROM network_providers WHERE id = ?').get(id) as {
-      id: string;
-      name: string;
-      is_active: number;
-    } | undefined;
-
-    if (!provider) {
-      return res.status(404).json({ error: 'Provider not found.' });
-    }
-
-    const newStatus = provider.is_active === 1 ? 0 : 1;
-    const now = new Date().toISOString();
-
-    db.prepare('UPDATE network_providers SET is_active = ?, updated_at = ? WHERE id = ?').run(newStatus, now, id);
-
-    logAudit(
-      req.admin,
-      newStatus === 1 ? 'PROVIDER_ENABLED' : 'PROVIDER_DISABLED',
-      'PROVIDER',
-      id,
-      `${newStatus === 1 ? 'Enabled' : 'Disabled'} telecom provider '${provider.name}'`,
-      req
-    );
-
-    res.json({
-      success: true,
-      message: `Provider '${provider.name}' is now ${newStatus === 1 ? 'Active' : 'Inactive'}.`,
-      isActive: newStatus === 1,
-    });
-  } catch (err) {
-    console.error('[ADMIN_API_ERROR] PATCH /providers/:id/toggle:', err);
-    res.status(500).json({ error: 'Failed to toggle provider status' });
-  }
+adminProvidersRouter.patch('/:id/toggle',requireRole(['owner','manager']),async(req:AuthenticatedRequest,res)=>{
+  try{
+    const found=await postgresQuery<{id:string;name:string;is_active:boolean}>('SELECT id,name,is_active FROM network_providers WHERE id=$1',[req.params.id]);
+    const p=found.rows[0];if(!p)return res.status(404).json({error:'Provider not found.'});
+    const active=!p.is_active,now=new Date().toISOString();
+    await postgresQuery('UPDATE network_providers SET is_active=$1,updated_at=$2 WHERE id=$3',[active,now,p.id]);
+    await logAudit(req.admin,active?'PROVIDER_ENABLED':'PROVIDER_DISABLED','PROVIDER',p.id,`${active?'Enabled':'Disabled'} telecom provider '${p.name}'`,req);
+    return res.json({success:true,message:`Provider '${p.name}' is now ${active?'Active':'Inactive'}.`,isActive:active});
+  }catch(err){console.error('[ADMIN_API_ERROR] PATCH /providers/:id/toggle:',err);return res.status(500).json({error:'Failed to toggle provider status'});}
 });
 
-// DELETE /api/admin/providers/:id - Safe deletion check
-adminProvidersRouter.delete('/:id', requireRole(['owner']), (req: AuthenticatedRequest, res) => {
-  try {
-    const { id } = req.params;
-
-    const provider = db.prepare('SELECT id, name FROM network_providers WHERE id = ?').get(id) as { id: string; name: string } | undefined;
-    if (!provider) {
-      return res.status(404).json({ error: 'Provider not found.' });
-    }
-
-    // Check dependent historical submissions
-    const submissionCount = (db.prepare('SELECT COUNT(*) as c FROM customer_submissions WHERE provider_id = ?').get(id) as { c: number }).c;
-    if (submissionCount > 0) {
-      return res.status(400).json({
-        error: `Cannot permanently delete provider '${provider.name}' because it has ${submissionCount} historical customer submission record(s). Please disable/deactivate the provider instead to preserve historical integrity.`,
-      });
-    }
-
-    // Check dependent recharge plans
-    const planCount = (db.prepare('SELECT COUNT(*) as c FROM recharge_plans WHERE provider_id = ?').get(id) as { c: number }).c;
-    if (planCount > 0) {
-      return res.status(400).json({
-        error: `Cannot permanently delete provider '${provider.name}' because it has ${planCount} associated recharge plan(s). Please archive or remove those plans first, or deactivate the provider.`,
-      });
-    }
-
-    db.prepare('DELETE FROM network_providers WHERE id = ?').run(id);
-
-    logAudit(req.admin, 'PROVIDER_DELETE', 'PROVIDER', id, `Deleted unused telecom provider '${provider.name}'`, req);
-
-    res.json({ success: true, message: `Provider '${provider.name}' deleted successfully.` });
-  } catch (err) {
-    console.error('[ADMIN_API_ERROR] DELETE /providers/:id:', err);
-    res.status(500).json({ error: 'Failed to delete provider' });
-  }
+adminProvidersRouter.delete('/:id',requireRole(['owner']),async(req:AuthenticatedRequest,res)=>{
+  try{
+    const found=await postgresQuery<{id:string;name:string}>('SELECT id,name FROM network_providers WHERE id=$1',[req.params.id]);
+    const p=found.rows[0];if(!p)return res.status(404).json({error:'Provider not found.'});
+    const [submissions,plans]=await Promise.all([
+      postgresQuery<{c:string|number}>('SELECT COUNT(*) AS c FROM customer_submissions WHERE provider_id=$1',[p.id]),
+      postgresQuery<{c:string|number}>('SELECT COUNT(*) AS c FROM recharge_plans WHERE provider_id=$1',[p.id])
+    ]);
+    const sc=Number(submissions.rows[0]?.c??0),pc=Number(plans.rows[0]?.c??0);
+    if(sc>0)return res.status(400).json({error:`Cannot permanently delete provider '${p.name}' because it has ${sc} historical customer submission record(s). Please disable/deactivate the provider instead to preserve historical integrity.`});
+    if(pc>0)return res.status(400).json({error:`Cannot permanently delete provider '${p.name}' because it has ${pc} associated recharge plan(s). Please archive or remove those plans first, or deactivate the provider.`});
+    await postgresQuery('DELETE FROM network_providers WHERE id=$1',[p.id]);
+    await logAudit(req.admin,'PROVIDER_DELETE','PROVIDER',p.id,`Deleted unused telecom provider '${p.name}'`,req);
+    return res.json({success:true,message:`Provider '${p.name}' deleted successfully.`});
+  }catch(err){console.error('[ADMIN_API_ERROR] DELETE /providers/:id:',err);return res.status(500).json({error:'Failed to delete provider'});}
 });

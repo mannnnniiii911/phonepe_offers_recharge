@@ -1,187 +1,71 @@
 import { Router } from 'express';
-import { db } from '../db';
-import { requireAuth, requireRole, logAudit, type AuthenticatedRequest } from '../auth';
 import crypto from 'crypto';
+import { postgresQuery } from '../postgres';
+import { requireAuth, requireRole, logAudit, type AuthenticatedRequest } from '../auth';
 
-export const adminOffersRouter = Router();
-
+export const adminOffersRouter=Router();
 adminOffersRouter.use(requireAuth);
 
-// GET /api/admin/offers - List all offers
-adminOffersRouter.get('/', (_req, res) => {
-  try {
-    const offers = db.prepare(`
-      SELECT 
-        o.id,
-        o.title,
-        o.message,
-        o.subtitle,
-        o.banner_url as bannerUrl,
-        o.provider_id as providerId,
-        prov.name as providerName,
-        o.timer_mode as timerMode,
-        o.start_time as startTime,
-        o.end_time as endTime,
-        o.duration_minutes as durationMinutes,
-        o.status,
-        o.display_order as displayOrder,
-        o.created_at as createdAt,
-        o.updated_at as updatedAt
-      FROM special_offers o
-      LEFT JOIN network_providers prov ON o.provider_id = prov.id
-      ORDER BY o.display_order ASC, o.created_at DESC
-    `).all();
-
-    res.json({ success: true, offers });
-  } catch (err) {
-    console.error('[ADMIN_API_ERROR] GET /offers:', err);
-    res.status(500).json({ error: 'Failed to retrieve offers' });
-  }
+adminOffersRouter.get('/',async(_req,res)=>{
+  try{
+    const r=await postgresQuery(`SELECT o.id,o.title,o.message,o.subtitle,o.banner_url AS "bannerUrl",o.provider_id AS "providerId",prov.name AS "providerName",o.timer_mode AS "timerMode",o.start_time AS "startTime",o.end_time AS "endTime",o.duration_minutes AS "durationMinutes",o.status,o.display_order AS "displayOrder",o.created_at AS "createdAt",o.updated_at AS "updatedAt" FROM special_offers o LEFT JOIN network_providers prov ON o.provider_id=prov.id ORDER BY o.display_order,o.created_at DESC`);
+    return res.json({success:true,offers:r.rows});
+  }catch(err){console.error('[ADMIN_API_ERROR] GET /offers:',err);return res.status(500).json({error:'Failed to retrieve offers'});}
 });
 
-// POST /api/admin/offers - Create new offer (fixed deadline or duration-based campaign)
-adminOffersRouter.post('/', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
-  try {
-    const { title, message, subtitle, bannerUrl, providerId, timerMode = 'duration', durationMinutes = 30, startTime, endTime, status = 'active', displayOrder } = req.body;
-
-    if (!title || !message) {
-      return res.status(400).json({ error: 'Title and message are required.' });
-    }
-
-    const now = new Date();
-    let computedStartTime = startTime ? new Date(startTime).toISOString() : now.toISOString();
-    let computedEndTime: string;
-
-    if (timerMode === 'duration') {
-      const durationMs = Number(durationMinutes || 30) * 60 * 1000;
-      computedEndTime = new Date(new Date(computedStartTime).getTime() + durationMs).toISOString();
-    } else {
-      if (!endTime) {
-        return res.status(400).json({ error: 'End time is required for fixed deadline mode.' });
-      }
-      computedEndTime = new Date(endTime).toISOString();
-    }
-
-    const id = 'offer-' + crypto.randomUUID().slice(0, 8);
-
-    db.prepare(`
-      INSERT INTO special_offers (id, title, message, subtitle, banner_url, provider_id, timer_mode, start_time, end_time, duration_minutes, status, display_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      title.trim(),
-      message.trim(),
-      subtitle?.trim() || '',
-      bannerUrl || '',
-      providerId || null,
-      timerMode,
-      computedStartTime,
-      computedEndTime,
-      Number(durationMinutes) || 30,
-      status,
-      Number(displayOrder) || 0,
-      now.toISOString(),
-      now.toISOString()
-    );
-
-    logAudit(req.admin, 'OFFER_CREATE', 'OFFER', id, `Created special offer '${title}' (Mode: ${timerMode}, End: ${computedEndTime})`, req);
-
-    res.json({ success: true, message: 'Special offer created successfully', id });
-  } catch (err) {
-    console.error('[ADMIN_API_ERROR] POST /offers:', err);
-    res.status(500).json({ error: 'Failed to create offer' });
-  }
+adminOffersRouter.post('/',requireRole(['owner','manager']),async(req:AuthenticatedRequest,res)=>{
+  try{
+    const {title,message,subtitle,bannerUrl,providerId,timerMode='duration',durationMinutes=30,startTime,endTime,status='active',displayOrder}=req.body??{};
+    if(!title||!message)return res.status(400).json({error:'Title and message are required.'});
+    const now=new Date(), start=startTime?new Date(startTime):now;
+    if(Number.isNaN(start.getTime()))return res.status(400).json({error:'Invalid start time.'});
+    let end:Date;
+    if(timerMode==='duration')end=new Date(start.getTime()+Number(durationMinutes||30)*60000);
+    else {if(!endTime)return res.status(400).json({error:'End time is required for fixed deadline mode.'});end=new Date(endTime);}
+    if(Number.isNaN(end.getTime())||end<=start)return res.status(400).json({error:'Offer end time must be after its start time.'});
+    const id='offer-'+crypto.randomUUID().slice(0,8),nowIso=now.toISOString();
+    await postgresQuery(`INSERT INTO special_offers (id,title,message,subtitle,banner_url,provider_id,timer_mode,start_time,end_time,duration_minutes,status,display_order,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      [id,String(title).trim(),String(message).trim(),subtitle?.trim()||'',bannerUrl||'',providerId||null,timerMode,start.toISOString(),end.toISOString(),Number(durationMinutes)||30,status,Number(displayOrder)||0,nowIso,nowIso]);
+    await logAudit(req.admin,'OFFER_CREATE','OFFER',id,`Created special offer '${title}' (Mode: ${timerMode}, End: ${end.toISOString()})`,req);
+    return res.json({success:true,message:'Special offer created successfully',id});
+  }catch(err){console.error('[ADMIN_API_ERROR] POST /offers:',err);return res.status(500).json({error:'Failed to create offer'});}
 });
 
-// PUT /api/admin/offers/:id - Update offer
-adminOffersRouter.put('/:id', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
-  try {
-    const { id } = req.params;
-    const { title, message, subtitle, bannerUrl, providerId, timerMode, durationMinutes, startTime, endTime, status, displayOrder } = req.body;
-
-    const existing = db.prepare('SELECT id, title FROM special_offers WHERE id = ?').get(id) as { id: string; title: string } | undefined;
-    if (!existing) {
-      return res.status(404).json({ error: 'Offer not found.' });
-    }
-
-    const now = new Date();
-    let computedStartTime = startTime ? new Date(startTime).toISOString() : now.toISOString();
-    let computedEndTime: string;
-
-    if (timerMode === 'duration') {
-      const durationMs = Number(durationMinutes || 30) * 60 * 1000;
-      computedEndTime = new Date(new Date(computedStartTime).getTime() + durationMs).toISOString();
-    } else {
-      computedEndTime = endTime ? new Date(endTime).toISOString() : new Date(now.getTime() + 30 * 60 * 1000).toISOString();
-    }
-
-    db.prepare(`
-      UPDATE special_offers
-      SET title = ?, message = ?, subtitle = ?, banner_url = ?, provider_id = ?, timer_mode = ?, start_time = ?, end_time = ?, duration_minutes = ?, status = ?, display_order = ?, updated_at = ?
-      WHERE id = ?
-    `).run(
-      title.trim(),
-      message.trim(),
-      subtitle?.trim() || '',
-      bannerUrl || '',
-      providerId || null,
-      timerMode || 'duration',
-      computedStartTime,
-      computedEndTime,
-      Number(durationMinutes) || 30,
-      status || 'active',
-      Number(displayOrder) || 0,
-      now.toISOString(),
-      id
-    );
-
-    logAudit(req.admin, 'OFFER_UPDATE', 'OFFER', id, `Updated special offer '${title}'`, req);
-
-    res.json({ success: true, message: 'Offer updated successfully' });
-  } catch (err) {
-    console.error('[ADMIN_API_ERROR] PUT /offers/:id:', err);
-    res.status(500).json({ error: 'Failed to update offer' });
-  }
+adminOffersRouter.put('/:id',requireRole(['owner','manager']),async(req:AuthenticatedRequest,res)=>{
+  try{
+    const {id}=req.params,{title,message,subtitle,bannerUrl,providerId,timerMode='duration',durationMinutes=30,startTime,endTime,status='active',displayOrder}=req.body??{};
+    if(!title||!message)return res.status(400).json({error:'Title and message are required.'});
+    const existing=await postgresQuery<{id:string}>('SELECT id FROM special_offers WHERE id=$1',[id]);
+    if(!existing.rows[0])return res.status(404).json({error:'Offer not found.'});
+    const now=new Date(),start=startTime?new Date(startTime):now;
+    if(Number.isNaN(start.getTime()))return res.status(400).json({error:'Invalid start time.'});
+    const end=timerMode==='duration'?new Date(start.getTime()+Number(durationMinutes||30)*60000):(endTime?new Date(endTime):new Date(now.getTime()+1800000));
+    if(Number.isNaN(end.getTime())||end<=start)return res.status(400).json({error:'Offer end time must be after its start time.'});
+    await postgresQuery(`UPDATE special_offers SET title=$1,message=$2,subtitle=$3,banner_url=$4,provider_id=$5,timer_mode=$6,start_time=$7,end_time=$8,duration_minutes=$9,status=$10,display_order=$11,updated_at=$12 WHERE id=$13`,
+      [String(title).trim(),String(message).trim(),subtitle?.trim()||'',bannerUrl||'',providerId||null,timerMode,start.toISOString(),end.toISOString(),Number(durationMinutes)||30,status,Number(displayOrder)||0,now.toISOString(),id]);
+    await logAudit(req.admin,'OFFER_UPDATE','OFFER',id,`Updated special offer '${title}'`,req);
+    return res.json({success:true,message:'Offer updated successfully'});
+  }catch(err){console.error('[ADMIN_API_ERROR] PUT /offers/:id:',err);return res.status(500).json({error:'Failed to update offer'});}
 });
 
-// PATCH /api/admin/offers/:id/status - Pause, activate, or end early
-adminOffersRouter.patch('/:id/status', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    const offer = db.prepare('SELECT id, title, status FROM special_offers WHERE id = ?').get(id) as { id: string; title: string; status: string } | undefined;
-    if (!offer) {
-      return res.status(404).json({ error: 'Offer not found.' });
-    }
-
-    const now = new Date().toISOString();
-    db.prepare('UPDATE special_offers SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
-
-    logAudit(req.admin, 'OFFER_STATUS_CHANGE', 'OFFER', id, `Changed offer '${offer.title}' status to '${status}'`, req);
-
-    res.json({ success: true, message: `Offer status changed to '${status}'.` });
-  } catch (err) {
-    console.error('[ADMIN_API_ERROR] PATCH /offers/:id/status:', err);
-    res.status(500).json({ error: 'Failed to update offer status' });
-  }
+adminOffersRouter.patch('/:id/status',requireRole(['owner','manager']),async(req:AuthenticatedRequest,res)=>{
+  try{
+    const {status}=req.body??{};
+    if(!['active','paused','expired'].includes(status))return res.status(400).json({error:'Invalid offer status.'});
+    const found=await postgresQuery<{id:string;title:string}>('SELECT id,title FROM special_offers WHERE id=$1',[req.params.id]);
+    const offer=found.rows[0];if(!offer)return res.status(404).json({error:'Offer not found.'});
+    await postgresQuery('UPDATE special_offers SET status=$1,updated_at=$2 WHERE id=$3',[status,new Date().toISOString(),offer.id]);
+    await logAudit(req.admin,'OFFER_STATUS_CHANGE','OFFER',offer.id,`Changed offer '${offer.title}' status to '${status}'`,req);
+    return res.json({success:true,message:`Offer status changed to '${status}'.`});
+  }catch(err){console.error('[ADMIN_API_ERROR] PATCH /offers/:id/status:',err);return res.status(500).json({error:'Failed to update offer status'});}
 });
 
-// DELETE /api/admin/offers/:id - Delete offer
-adminOffersRouter.delete('/:id', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
-  try {
-    const { id } = req.params;
-    const offer = db.prepare('SELECT id, title FROM special_offers WHERE id = ?').get(id) as { id: string; title: string } | undefined;
-    if (!offer) {
-      return res.status(404).json({ error: 'Offer not found.' });
-    }
-
-    db.prepare('DELETE FROM special_offers WHERE id = ?').run(id);
-    logAudit(req.admin, 'OFFER_DELETE', 'OFFER', id, `Deleted offer '${offer.title}'`, req);
-
-    res.json({ success: true, message: 'Offer deleted successfully.' });
-  } catch (err) {
-    console.error('[ADMIN_API_ERROR] DELETE /offers/:id:', err);
-    res.status(500).json({ error: 'Failed to delete offer' });
-  }
+adminOffersRouter.delete('/:id',requireRole(['owner','manager']),async(req:AuthenticatedRequest,res)=>{
+  try{
+    const found=await postgresQuery<{id:string;title:string}>('SELECT id,title FROM special_offers WHERE id=$1',[req.params.id]);
+    const offer=found.rows[0];if(!offer)return res.status(404).json({error:'Offer not found.'});
+    await postgresQuery('DELETE FROM special_offers WHERE id=$1',[offer.id]);
+    await logAudit(req.admin,'OFFER_DELETE','OFFER',offer.id,`Deleted offer '${offer.title}'`,req);
+    return res.json({success:true,message:'Offer deleted successfully.'});
+  }catch(err){console.error('[ADMIN_API_ERROR] DELETE /offers/:id:',err);return res.status(500).json({error:'Failed to delete offer'});}
 });

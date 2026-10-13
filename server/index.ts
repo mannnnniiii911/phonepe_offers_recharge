@@ -15,8 +15,9 @@ import { ordersRouter } from './routes/orders';
 import { adminOrdersRouter } from './routes/adminOrders';
 import { paymentClicksRouter } from './routes/paymentClicks';
 
-// Initialize Database & Tables
-initDatabase();
+// Initialize PostgreSQL schema and seed defaults before accepting requests.
+async function startServer() {
+  await initDatabase();
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -68,6 +69,12 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ error: 'Internal server error occurred.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 [PhonePe-Recharge Backend] Running on http://localhost:${PORT}`);
+  app.listen(PORT, () => {
+    console.log(`🚀 [PhonePe-Recharge Backend] Running on http://localhost:${PORT}`);
+  });
+}
+
+startServer().catch((error) => {
+  console.error('[STARTUP_ERROR] Failed to initialize PostgreSQL:', error);
+  process.exit(1);
 });

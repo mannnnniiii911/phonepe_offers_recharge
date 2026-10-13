@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local database files must never be committed
+server/data/*.sqlite
+server/data/*.sqlite-*
+server/data/*.db
+server/data/*.db-*

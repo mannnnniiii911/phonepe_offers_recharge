@@ -10,7 +10,9 @@
     "setup-admin": "tsx server/seedAdmin.ts",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:migrate:postgres": "tsx server/migratePostgres.ts",
+    "db:copy-sqlite-to-postgres": "tsx server/copySqliteToPostgres.ts"
   },
   "dependencies": {
     "@types/canvas-confetti": "^1.9.0",
@@ -25,7 +27,8 @@
     "lucide-react": "^1.55.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.4"
+    "react-router-dom": "^7.18.4",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -46,6 +49,7 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "~6.0.2",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "@types/pg": "^8.15.5"
   }
 }
