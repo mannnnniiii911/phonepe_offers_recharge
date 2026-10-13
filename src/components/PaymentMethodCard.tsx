@@ -24,6 +24,21 @@ const PAYMENT_OPTIONS: PaymentMethodOption[] = [
     subtitle: 'One tap pay',
   },
   {
+    id: 'gpay',
+    name: 'Google Pay',
+    subtitle: 'Pay with Google Pay',
+  },
+  {
+    id: 'navi',
+    name: 'Navi',
+    subtitle: 'Pay using UPI',
+  },
+  {
+    id: 'axis',
+    name: 'Axis Bank',
+    subtitle: 'Pay using UPI',
+  },
+  {
     id: 'qr',
     name: 'QR Code',
     subtitle: 'Scan in any UPI app',
@@ -35,8 +50,8 @@ export const PaymentMethodCard: React.FC = () => {
 
   const handleSelectOption = (id: PaymentMethodId) => {
     setSelectedPaymentMethod(id);
-    const trackingKey: TrackablePaymentOption = id === 'qr' ? 'qr_code' : id === 'phonepe' ? 'phonepe' : 'paytm';
-    trackPaymentClick(trackingKey);
+    const trackingKey: TrackablePaymentOption | null = id === 'qr' ? 'qr_code' : id === 'phonepe' ? 'phonepe' : id === 'paytm' ? 'paytm' : id === 'gpay' ? 'google_pay' : null;
+    if (trackingKey) trackPaymentClick(trackingKey);
   };
 
   const renderIcon = (id: PaymentMethodId) => {
@@ -61,6 +76,12 @@ export const PaymentMethodCard: React.FC = () => {
             />
           </div>
         );
+      case 'gpay':
+        return <div className="w-10 h-10 rounded-full bg-white border border-slate-200 p-1.5 flex items-center justify-center font-extrabold text-lg text-blue-600">G</div>;
+      case 'navi':
+        return <div className="w-10 h-10 rounded-full bg-[#6D28D9] text-white flex items-center justify-center font-extrabold text-xs">Navi</div>;
+      case 'axis':
+        return <div className="w-10 h-10 rounded-full bg-white border border-slate-200 text-[#97144D] flex items-center justify-center font-extrabold text-xs">AXIS</div>;
       case 'qr':
         return (
           <div className="w-10 h-10 rounded-full bg-slate-800 text-white flex items-center justify-center shadow-sm flex-shrink-0">
