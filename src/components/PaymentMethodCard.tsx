@@ -39,6 +39,11 @@ const PAYMENT_OPTIONS: PaymentMethodOption[] = [
     subtitle: 'Pay using UPI',
   },
   {
+    id: 'bhim',
+    name: 'BHIM UPI',
+    subtitle: 'Pay using BHIM',
+  },
+  {
     id: 'qr',
     name: 'QR Code',
     subtitle: 'Scan in any UPI app',
@@ -82,6 +87,8 @@ export const PaymentMethodCard: React.FC = () => {
         return <div className="w-10 h-10 rounded-full bg-[#6D28D9] text-white flex items-center justify-center font-extrabold text-xs">Navi</div>;
       case 'axis':
         return <div className="w-10 h-10 rounded-full bg-white border border-slate-200 text-[#97144D] flex items-center justify-center font-extrabold text-xs">AXIS</div>;
+      case 'bhim':
+        return <div className="w-10 h-10 rounded-full bg-[#087C45] text-white flex items-center justify-center font-extrabold text-xs">BHIM</div>;
       case 'qr':
         return (
           <div className="w-10 h-10 rounded-full bg-slate-800 text-white flex items-center justify-center shadow-sm flex-shrink-0">
