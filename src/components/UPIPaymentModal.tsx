@@ -98,9 +98,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
           if (data.settings.customerSupportContact) {
             setSupportContact(data.settings.customerSupportContact);
           }
-          if (data.settings.upiId) {
-            setActiveUpiId(data.settings.upiId);
-          }
+          // UPI ID is intentionally hardcoded in PAYMENT_CONFIG; API settings must not override it.
           if (data.settings.qrCodeUrl) {
             setActiveQrCodeUrl(data.settings.qrCodeUrl);
           }
