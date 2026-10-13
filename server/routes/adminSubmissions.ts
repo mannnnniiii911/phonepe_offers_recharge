@@ -41,7 +41,7 @@ adminSubmissionsRouter.get('/', (req, res) => {
     }
 
     if (endDate) {
-      whereClause += ` AND s.created_at <= ?`;
+      whereClause += ` AND s.created_at < datetime(?, '+1 day')`;
       params.push(endDate as string);
     }
 
@@ -164,7 +164,7 @@ adminSubmissionsRouter.get('/export', requireRole(['owner', 'manager']), (req: A
       params.push(startDate as string);
     }
     if (endDate) {
-      whereClause += ` AND s.created_at <= ?`;
+      whereClause += ` AND s.created_at < datetime(?, '+1 day')`;
       params.push(endDate as string);
     }
 
