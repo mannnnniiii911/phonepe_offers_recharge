@@ -15,29 +15,12 @@ export const PlansPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'all' | 'popular' | '5g' | 'validity'>('all');
   const [isOpeningCheckout, setIsOpeningCheckout] = useState(false);
   const checkoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [dynamicPlans, setDynamicPlans] = useState<RechargePlan[]>(() =>
-    PLANS_DATA.filter((p) => p.operatorId === selectedOperator)
-  );
-
-  // Fetch published plans dynamically from database
-  useEffect(() => {
-    if (!selectedOperator) return;
-
-    fetch(`/api/plans?providerId=${selectedOperator}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.plans) && data.plans.length > 0) {
-          setDynamicPlans(data.plans);
-        }
-      })
-      .catch((err) => console.warn('Dynamic plans fetch fallback:', err));
-  }, [selectedOperator]);
-
-  const availablePlans = (
-    dynamicPlans.length > 0
-      ? dynamicPlans
-      : PLANS_DATA.filter((p) => p.operatorId === selectedOperator)
-  ).slice().sort((a, b) => Number(b.price) - Number(a.price));
+  // Recharge plan prices are controlled by PLANS_DATA in src/data/plans.ts.
+  // The admin/database plans endpoint is intentionally not used here.
+  const availablePlans = PLANS_DATA
+    .filter((p) => p.operatorId === selectedOperator)
+    .slice()
+    .sort((a, b) => Number(b.price) - Number(a.price));
 
   const filteredPlans = activeTab === 'all'
     ? availablePlans

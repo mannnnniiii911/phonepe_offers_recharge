@@ -3,7 +3,6 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   Radio,
-  Layers,
   Clock,
   FileText,
   Users,
@@ -32,7 +31,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', path: '/admin', icon: LayoutDashboard },
   { label: 'Recharge Orders', path: '/admin/orders', icon: CreditCard },
   { label: 'Network Providers', path: '/admin/providers', icon: Radio },
-  { label: 'Recharge Plans', path: '/admin/plans', icon: Layers },
   { label: 'Special Offers & Timers', path: '/admin/offers', icon: Clock },
   { label: 'Website Content', path: '/admin/content', icon: FileText },
   { label: 'Customer Submissions', path: '/admin/submissions', icon: Users },

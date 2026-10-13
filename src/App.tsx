@@ -14,7 +14,6 @@ import { AdminLayout } from './admin/components/AdminLayout';
 import { AdminLoginPage } from './admin/pages/AdminLoginPage';
 import { DashboardOverview } from './admin/pages/DashboardOverview';
 import { ProvidersManager } from './admin/pages/ProvidersManager';
-import { PlansManager } from './admin/pages/PlansManager';
 import { OffersManager } from './admin/pages/OffersManager';
 import { ContentManager } from './admin/pages/ContentManager';
 import { SubmissionsManager } from './admin/pages/SubmissionsManager';
@@ -50,7 +49,6 @@ export const App: React.FC = () => {
               <Route index element={<DashboardOverview />} />
               <Route path="orders" element={<OrdersManager />} />
               <Route path="providers" element={<ProvidersManager />} />
-              <Route path="plans" element={<PlansManager />} />
               <Route path="offers" element={<OffersManager />} />
               <Route path="content" element={<ContentManager />} />
               <Route path="submissions" element={<SubmissionsManager />} />
