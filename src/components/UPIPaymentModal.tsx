@@ -246,7 +246,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
     setAppSecondsRemaining(210);
 
     // Generate targeted deep link for PhonePe / Paytm on Android & iOS
-    const appType: 'phonepe' | 'paytm' | 'gpay' | 'navi' | 'axis' = selectedPaymentMethod === 'paytm' ? 'paytm' : selectedPaymentMethod === 'gpay' ? 'gpay' : selectedPaymentMethod === 'navi' ? 'navi' : selectedPaymentMethod === 'axis' ? 'axis' : 'phonepe';
+    const appType: 'phonepe' | 'paytm' | 'gpay' | 'navi' | 'axis' | 'bhim' = selectedPaymentMethod === 'paytm' ? 'paytm' : selectedPaymentMethod === 'gpay' ? 'gpay' : selectedPaymentMethod === 'navi' ? 'navi' : selectedPaymentMethod === 'axis' ? 'axis' : selectedPaymentMethod === 'bhim' ? 'bhim' : 'phonepe';
     const appDeepLink = generateAppDeepLink(appType, {
       amount,
       orderId: orderRef,
@@ -285,7 +285,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
 
   if (!isOpen) return null;
 
-  const appName = selectedPaymentMethod === 'paytm' ? 'Paytm' : selectedPaymentMethod === 'gpay' ? 'Google Pay' : selectedPaymentMethod === 'navi' ? 'Navi' : selectedPaymentMethod === 'axis' ? 'Axis Bank' : 'PhonePe';
+  const appName = selectedPaymentMethod === 'paytm' ? 'Paytm' : selectedPaymentMethod === 'gpay' ? 'Google Pay' : selectedPaymentMethod === 'navi' ? 'Navi' : selectedPaymentMethod === 'axis' ? 'Axis Bank' : selectedPaymentMethod === 'bhim' ? 'BHIM UPI' : 'PhonePe';
   const formatAppTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
