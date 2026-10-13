@@ -5,7 +5,7 @@ export const PLANS_DATA: RechargePlan[] = [
   {
     id: 'jio-499',
     operatorId: 'jio',
-    price: 499,
+    price: 399,
     originalPrice: 3999,
     validity: '365 Days',
     data: '3GB/day',
@@ -18,7 +18,7 @@ export const PLANS_DATA: RechargePlan[] = [
   {
     id: 'jio-449',
     operatorId: 'jio',
-    price: 449,
+    price: 349,
     originalPrice: 2495,
     validity: '365 Days',
     data: '2.5GB/day',
@@ -31,7 +31,7 @@ export const PLANS_DATA: RechargePlan[] = [
   {
     id: 'jio-399',
     operatorId: 'jio',
-    price: 399,
+    price: 329,
     originalPrice: 1999,
     validity: '180 Days',
     data: '2GB/day',
@@ -84,7 +84,7 @@ export const PLANS_DATA: RechargePlan[] = [
   {
     id: 'airtel-499',
     operatorId: 'airtel',
-    price: 499,
+    price: 399,
     originalPrice: 3999,
     validity: '365 Days',
     data: '3GB/day',
@@ -97,7 +97,7 @@ export const PLANS_DATA: RechargePlan[] = [
   {
     id: 'airtel-399',
     operatorId: 'airtel',
-    price: 399,
+    price: 329,
     originalPrice: 1999,
     validity: '180 Days',
     data: '2GB/day',
@@ -137,7 +137,7 @@ export const PLANS_DATA: RechargePlan[] = [
   {
     id: 'vi-499',
     operatorId: 'vi',
-    price: 499,
+    price: 399,
     originalPrice: 3999,
     validity: '365 Days',
     data: '3GB/day',
@@ -150,7 +150,7 @@ export const PLANS_DATA: RechargePlan[] = [
   {
     id: 'vi-399',
     operatorId: 'vi',
-    price: 399,
+    price: 329,
     originalPrice: 1999,
     validity: '180 Days',
     data: '2GB/day',
@@ -178,7 +178,7 @@ export const PLANS_DATA: RechargePlan[] = [
   {
     id: 'bsnl-499',
     operatorId: 'bsnl',
-    price: 499,
+    price: 399,
     originalPrice: 3999,
     validity: '365 Days',
     data: '3GB/day',
