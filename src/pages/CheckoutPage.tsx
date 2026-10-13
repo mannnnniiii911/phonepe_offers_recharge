@@ -47,6 +47,8 @@ export const CheckoutPage: React.FC = () => {
         return 'Navi';
       case 'axis':
         return 'Axis Bank';
+      case 'bhim':
+        return 'BHIM UPI';
       case 'qr':
         return 'UPI QR Code';
       default:
