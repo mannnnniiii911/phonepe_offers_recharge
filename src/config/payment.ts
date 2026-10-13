@@ -91,7 +91,7 @@ export function isAndroid(): boolean {
  * to prevent WhatsApp (which registers generic upi://) from intercepting the link on Android and iOS.
  */
 export function generateAppDeepLink(
-  app: 'phonepe' | 'paytm' | 'gpay' | 'generic',
+  app: 'phonepe' | 'paytm' | 'gpay' | 'navi' | 'axis' | 'generic',
   params: { amount: number; orderId: string; note?: string; upiId?: string }
 ): string {
   const { amount, orderId, note, upiId } = params;
@@ -134,6 +134,12 @@ export function generateAppDeepLink(
         return `intent://pay?${queryString}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;end`;
       }
       return `gpay://upi/pay?${queryString}`;
+
+    // Navi and Axis can receive a standard UPI payment request; the device chooses
+    // an installed UPI handler if a dedicated app scheme is not registered.
+    case 'navi':
+    case 'axis':
+      return `upi://pay?${queryString}`;
 
     default:
       return `upi://pay?${queryString}`;
