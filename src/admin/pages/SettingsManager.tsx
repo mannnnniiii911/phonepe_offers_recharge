@@ -33,8 +33,7 @@ export const SettingsManager: React.FC = () => {
   const [supportContact, setSupportContact] = useState('');
   const [isSavingSupport, setIsSavingSupport] = useState(false);
 
-  // Payment Settings (UPI ID & QR Code)
-  const [upiId, setUpiId] = useState('q462939567@ybl');
+  // Payment Settings (QR Code only; receiver UPI ID is hardcoded in src/config/payment.ts)
   const [currentQrUrl, setCurrentQrUrl] = useState('/assets/upi-qr.jpg');
   const [previewQrUrl, setPreviewQrUrl] = useState<string | null>(null);
   const [isSavingPayment, setIsSavingPayment] = useState(false);
@@ -54,9 +53,6 @@ export const SettingsManager: React.FC = () => {
       const res = await adminApi.getSettings();
       if (res.success && res.settings) {
         setSupportContact(res.settings.customer_support_contact || res.settings.support_contact || '');
-        if (res.settings.upi_id) {
-          setUpiId(res.settings.upi_id);
-        }
         if (res.settings.qr_code_url) {
           setCurrentQrUrl(res.settings.qr_code_url);
         }
@@ -138,22 +134,9 @@ export const SettingsManager: React.FC = () => {
     setPaymentError(null);
     setPaymentSuccess(null);
 
-    const cleanUpi = upiId.trim();
-    if (!cleanUpi) {
-      setPaymentError('UPI ID cannot be empty.');
-      return;
-    }
-
-    if (!cleanUpi.includes('@') || cleanUpi.length < 4) {
-      setPaymentError('Please enter a valid UPI ID (e.g. username@bank).');
-      return;
-    }
-
     setIsSavingPayment(true);
     try {
-      const payload: Record<string, string> = {
-        upi_id: cleanUpi,
-      };
+      const payload: Record<string, string> = {};
       if (previewQrUrl) {
         payload.qr_code_url = previewQrUrl;
       }
@@ -164,7 +147,7 @@ export const SettingsManager: React.FC = () => {
         setCurrentQrUrl(previewQrUrl);
         setPreviewQrUrl(null);
       }
-      setPaymentSuccess('Payment settings updated successfully! Checkout page is now using the updated UPI ID and QR code.');
+      setPaymentSuccess('QR code updated successfully. The receiver UPI ID remains hardcoded in the application.');
       setTimeout(() => setPaymentSuccess(null), 5000);
     } catch (err: any) {
       setPaymentError(err.message || 'Failed to update payment settings.');
@@ -272,7 +255,7 @@ export const SettingsManager: React.FC = () => {
             </h2>
           </div>
           <span className="text-[11px] font-semibold bg-purple-50 text-[#6426AD] px-2.5 py-0.5 rounded-full border border-purple-200">
-            UPI ID & QR Code Management
+            QR Code Management
           </span>
         </div>
 
@@ -292,27 +275,10 @@ export const SettingsManager: React.FC = () => {
 
         <form onSubmit={handleSavePaymentSettings} className="space-y-4">
           <p className="text-xs text-slate-600 leading-relaxed">
-            Manage the payment receiving UPI ID and QR code displayed on the checkout page. Any changes saved here update customer checkout payments immediately without redeployment.
+            Upload and manage the QR code displayed on checkout. The receiver UPI ID is hardcoded in the application and cannot be changed from the admin panel.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-            {/* UPI ID Field */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                Receiver UPI ID
-              </label>
-              <input
-                type="text"
-                value={upiId}
-                onChange={(e) => setUpiId(e.target.value)}
-                placeholder="e.g. q462939567@ybl"
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#6426AD]"
-              />
-              <p className="text-[11px] text-slate-500">
-                Encoded into PhonePe & Paytm payment deep links and displayed to customers on checkout.
-              </p>
-            </div>
-
             {/* QR Code Upload Field */}
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
@@ -353,7 +319,7 @@ export const SettingsManager: React.FC = () => {
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
                   {previewQrUrl
-                    ? 'Click "Save Payment Settings" below to persist this QR code and immediately update the checkout page.'
+                    ? 'Click "Save QR Code" below to persist this QR code and immediately update the checkout page.'
                     : 'This QR code is currently visible to customers on the checkout page.'}
                 </p>
                 {previewQrUrl && (
@@ -379,7 +345,7 @@ export const SettingsManager: React.FC = () => {
               {isSavingPayment ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Saving Payment Settings...</span>
+                  <span>Saving QR Code...</span>
                 </>
               ) : (
                 <span>Save Payment Settings</span>
