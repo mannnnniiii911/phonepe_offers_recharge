@@ -91,7 +91,7 @@ export function isAndroid(): boolean {
  * to prevent WhatsApp (which registers generic upi://) from intercepting the link on Android and iOS.
  */
 export function generateAppDeepLink(
-  app: 'phonepe' | 'paytm' | 'gpay' | 'navi' | 'axis' | 'generic',
+  app: 'phonepe' | 'paytm' | 'gpay' | 'navi' | 'axis' | 'bhim' | 'generic',
   params: { amount: number; orderId: string; note?: string; upiId?: string }
 ): string {
   const { amount, orderId, note, upiId } = params;
@@ -142,6 +142,14 @@ export function generateAppDeepLink(
         return `intent://pay?${queryString}#Intent;scheme=navi;package=com.navi.navidotcom;end`;
       }
       return `navi://pay?${queryString}`;
+
+    case 'bhim':
+      if (android) {
+        // Explicitly target the official BHIM app on Android.
+        return `intent://pay?${queryString}#Intent;scheme=upi;package=in.org.npci.upiapp;end`;
+      }
+      // BHIM's iOS payment URL scheme.
+      return `bhim://upi/pay?${queryString}`;
 
     case 'axis':
       if (android) {
