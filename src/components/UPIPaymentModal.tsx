@@ -40,7 +40,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
   const [error, setError] = useState<string>('');
   const [supportContact, setSupportContact] = useState<string>('');
   const [upiCopied, setUpiCopied] = useState(false);
-  const [activeUpiId, setActiveUpiId] = useState<string>(PAYMENT_CONFIG.upiId);
+  const [activeUpiId] = useState<string>(PAYMENT_CONFIG.upiId);
   const [activeQrCodeUrl, setActiveQrCodeUrl] = useState<string>(PAYMENT_CONFIG.qrCodePath);
 
   // App Payment Flow: 3.5-minute (210s) countdown state (starts ONLY when button is clicked)
