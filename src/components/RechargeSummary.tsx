@@ -6,7 +6,7 @@ export const RechargeSummary: React.FC = () => {
   const { selectedOperator, mobileNumber, selectedPlan } = useRecharge();
   const operator = (selectedOperator && OPERATORS[selectedOperator]) || OPERATORS.jio;
 
-  const price = selectedPlan ? selectedPlan.price : 499;
+  const price = selectedPlan ? selectedPlan.price : 399;
   const validity = selectedPlan ? selectedPlan.validity : '365 Days';
   const data = selectedPlan ? selectedPlan.data : '3GB/day';
   const voice = selectedPlan ? selectedPlan.voice : 'Unlimited';
