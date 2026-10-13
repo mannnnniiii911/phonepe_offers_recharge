@@ -70,7 +70,7 @@ export const SubmissionsManager: React.FC = () => {
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         page,
-        limit: 20,
+        limit: 200,
       });
 
       if (res.success) {
