@@ -135,10 +135,21 @@ export function generateAppDeepLink(
       }
       return `gpay://upi/pay?${queryString}`;
 
-    // Navi and Axis can receive a standard UPI payment request; the device chooses
-    // an installed UPI handler if a dedicated app scheme is not registered.
     case 'navi':
+      if (android) {
+        // Explicitly target Navi so another app registered for generic UPI links
+        // (such as WhatsApp) cannot intercept the payment request.
+        return `intent://pay?${queryString}#Intent;scheme=navi;package=com.navi.navidotcom;end`;
+      }
+      return `navi://pay?${queryString}`;
+
     case 'axis':
+      if (android) {
+        // Explicitly target the Axis Mobile app rather than the generic UPI handler.
+        return `intent://pay?${queryString}#Intent;scheme=upi;package=com.axis.mobile;end`;
+      }
+      // Axis does not have a reliably documented public iOS payment URL scheme.
+      // Avoid guessing one; use the standard UPI URI on iOS.
       return `upi://pay?${queryString}`;
 
     default:
