@@ -33,7 +33,7 @@ export const CheckoutPage: React.FC = () => {
     }
   }, [selectedOperator, selectedPlan, navigate]);
 
-  const price = selectedPlan ? selectedPlan.price : 499;
+  const price = selectedPlan ? selectedPlan.price : 399;
 
   const getMethodName = () => {
     switch (selectedPaymentMethod) {
