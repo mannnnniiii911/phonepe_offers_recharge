@@ -25,14 +25,14 @@ export interface RechargePlan {
   category?: 'popular' | '5g' | 'validity' | 'data';
 }
 
-export type PaymentMethodId = 'phonepe' | 'paytm' | 'qr';
+export type PaymentMethodId = 'phonepe' | 'paytm' | 'gpay' | 'navi' | 'axis' | 'qr';
 
 export interface PaymentMethod {
   id: PaymentMethodId;
   name: string;
   subtitle: string;
   recommended?: boolean;
-  iconType: 'phonepe' | 'paytm' | 'qr';
+  iconType: 'phonepe' | 'paytm' | 'gpay' | 'navi' | 'axis' | 'qr';
 }
 
 export interface RechargeContextType {
