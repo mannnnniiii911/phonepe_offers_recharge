@@ -41,6 +41,12 @@ export const CheckoutPage: React.FC = () => {
         return 'PhonePe';
       case 'paytm':
         return 'Paytm';
+      case 'gpay':
+        return 'Google Pay';
+      case 'navi':
+        return 'Navi';
+      case 'axis':
+        return 'Axis Bank';
       case 'qr':
         return 'UPI QR Code';
       default:
