@@ -236,8 +236,8 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
     ensureOrderCreated(orderRef).catch((err) => console.warn('Order record notice:', err));
 
     // Track app payment click immediately
-    const trackingOpt: TrackablePaymentOption = selectedPaymentMethod === 'paytm' ? 'paytm' : 'phonepe';
-    trackPaymentClick(trackingOpt, orderRef);
+    const trackingOpt: TrackablePaymentOption | null = selectedPaymentMethod === 'paytm' ? 'paytm' : selectedPaymentMethod === 'gpay' ? 'google_pay' : selectedPaymentMethod === 'phonepe' ? 'phonepe' : null;
+    if (trackingOpt) trackPaymentClick(trackingOpt, orderRef);
 
     // Start 3.5-minute (210s) countdown only when clicked
     const now = Date.now();
@@ -246,7 +246,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
     setAppSecondsRemaining(210);
 
     // Generate targeted deep link for PhonePe / Paytm on Android & iOS
-    const appType: 'phonepe' | 'paytm' = selectedPaymentMethod === 'paytm' ? 'paytm' : 'phonepe';
+    const appType: 'phonepe' | 'paytm' | 'gpay' | 'navi' | 'axis' = selectedPaymentMethod === 'paytm' ? 'paytm' : selectedPaymentMethod === 'gpay' ? 'gpay' : selectedPaymentMethod === 'navi' ? 'navi' : selectedPaymentMethod === 'axis' ? 'axis' : 'phonepe';
     const appDeepLink = generateAppDeepLink(appType, {
       amount,
       orderId: orderRef,
@@ -285,7 +285,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
 
   if (!isOpen) return null;
 
-  const appName = selectedPaymentMethod === 'paytm' ? 'Paytm' : 'PhonePe';
+  const appName = selectedPaymentMethod === 'paytm' ? 'Paytm' : selectedPaymentMethod === 'gpay' ? 'Google Pay' : selectedPaymentMethod === 'navi' ? 'Navi' : selectedPaymentMethod === 'axis' ? 'Axis Bank' : 'PhonePe';
   const formatAppTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -316,8 +316,8 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
                 if (selectedPaymentMethod === 'qr') {
                   setSelectedPaymentMethod('phonepe');
                 }
-                const opt: TrackablePaymentOption = selectedPaymentMethod === 'paytm' ? 'paytm' : 'phonepe';
-                trackPaymentClick(opt, orderRef);
+                const opt: TrackablePaymentOption | null = selectedPaymentMethod === 'paytm' ? 'paytm' : selectedPaymentMethod === 'gpay' ? 'google_pay' : selectedPaymentMethod === 'phonepe' ? 'phonepe' : null;
+                if (opt) trackPaymentClick(opt, orderRef);
               }}
               className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 activeMode === 'app'
@@ -386,7 +386,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
             </div>
           ) : (
             /* ======================================================== */
-            /* SECTION B: PHONEPE / PAYTM APP PAYMENT FLOW             */
+            /* SECTION B: UPI APP PAYMENT FLOW                         */
             /* ======================================================== */
             <div className="space-y-4">
               {/* Plan & Amount Summary */}
