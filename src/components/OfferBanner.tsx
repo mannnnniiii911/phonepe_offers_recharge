@@ -10,18 +10,18 @@ export const OfferBanner: React.FC = () => {
 
   const offers = [
     {
-      price: 349,
+      price: 399,
       data: '2GB/DAY',
       validity: '12 MONTHS',
       calls: 'Unlimited Calls',
-      planId: selectedOperator ? `${selectedOperator}-349` : 'offer-349',
+      planId: selectedOperator ? `${selectedOperator}-399` : 'offer-399',
     },
     {
-      price: 399,
+      price: 349,
       data: '2GB/DAY',
       validity: '6 MONTHS',
       calls: 'Unlimited Calls',
-      planId: selectedOperator ? `${selectedOperator}-399` : 'offer-399',
+      planId: selectedOperator ? `${selectedOperator}-349` : 'offer-349',
       featured: true,
     },
     {
