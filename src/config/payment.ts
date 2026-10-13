@@ -7,7 +7,7 @@
 
 export const PAYMENT_CONFIG = {
   /** The UPI VPA (Virtual Payment Address) to receive payments */
-  upiId: 'q462939567@ybl',
+  upiId: 'sujalshaw8902@nyes',
 
   /** Display name for the payee shown in UPI payment apps */
   payeeName: 'PhonePe Recharge',
