@@ -5,7 +5,6 @@ import { initDatabase } from './db';
 import { authRouter } from './routes/auth';
 import { publicRouter } from './routes/public';
 import { adminProvidersRouter } from './routes/adminProviders';
-import { adminPlansRouter } from './routes/adminPlans';
 import { adminOffersRouter } from './routes/adminOffers';
 import { adminSubmissionsRouter } from './routes/adminSubmissions';
 import { adminStatsRouter } from './routes/adminStats';
@@ -42,7 +41,6 @@ app.use('/api/auth', authRouter);
 
 // Protected Admin routes
 app.use('/api/admin/providers', adminProvidersRouter);
-app.use('/api/admin/plans', adminPlansRouter);
 app.use('/api/admin/offers', adminOffersRouter);
 app.use('/api/admin/submissions', adminSubmissionsRouter);
 app.use('/api/admin/stats', adminStatsRouter);
