@@ -20,14 +20,17 @@ async function seedInitialData(): Promise<void> {
 
   const owner = await postgresPool.query('SELECT id FROM admin_users WHERE username = $1 LIMIT 1', ['admin']);
   if (owner.rowCount === 0) {
-    const password = process.env.ADMIN_INITIAL_PASSWORD || 'AdminPassword@2026!';
+    const password = process.env.ADMIN_INITIAL_PASSWORD;
+    if (!password) {
+      throw new Error('ADMIN_INITIAL_PASSWORD must be set before initializing an empty PostgreSQL admin table. Refusing to create a predictable default admin password.');
+    }
     const passwordHash = bcrypt.hashSync(password, bcrypt.genSaltSync(12));
     await postgresPool.query(
       `INSERT INTO admin_users (id, username, email, password_hash, role, status, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
       ['admin-owner-001', 'admin', 'admin@phonepe-recharge.local', passwordHash, 'owner', 'active', now, now]
     );
-    console.log('[POSTGRES] Initial owner record checked. Set ADMIN_INITIAL_PASSWORD in the deployment environment.');
+    console.log('[POSTGRES] Initial owner record checked. Initial owner created from ADMIN_INITIAL_PASSWORD.');
   }
 
   const providers = [
