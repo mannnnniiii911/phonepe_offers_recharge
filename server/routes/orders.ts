@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { db } from '../db';
+import { dbAdapter } from '../dbAdapter';
 
 export const ordersRouter = Router();
 
@@ -19,9 +19,9 @@ function hashMobile(num: string): string {
  * POST /api/orders
  * Create a new recharge order (customer-facing).
  * Never marks payment as paid or completed.
- * Starts the 2-minute payment guidance window.
+ * Starts the payment guidance window.
  */
-ordersRouter.post('/orders', (req, res) => {
+ordersRouter.post('/orders', async (req, res) => {
   try {
     const { mobileNumber, providerId, providerName, planId, planPrice, planSnapshot, paymentMethod, upiId, orderRef } = req.body;
 
@@ -43,14 +43,13 @@ ordersRouter.post('/orders', (req, res) => {
     }
 
     // Check for duplicate order ref
-    const existingOrder = db.prepare('SELECT id, payment_started_at, created_at FROM recharge_orders WHERE order_ref = ?').get(orderRef) as {
+    const existingOrder = await dbAdapter.queryOne<{
       id: string;
       payment_started_at: string | null;
       created_at: string;
-    } | undefined;
+    }>('SELECT id, payment_started_at, created_at FROM recharge_orders WHERE order_ref = ?', [orderRef]);
 
     if (existingOrder) {
-      // If order already exists, return existing order with its original start time
       const windowSecs = paymentMethod === 'qr' ? 300 : 210;
       return res.status(200).json({
         success: true,
@@ -67,14 +66,14 @@ ordersRouter.post('/orders', (req, res) => {
     const now = new Date().toISOString();
     const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket?.remoteAddress || '';
 
-    db.prepare(`
+    await dbAdapter.execute(`
       INSERT INTO recharge_orders (
         id, order_ref, mobile_number_hash, masked_mobile, provider_id, provider_name,
         plan_id, plan_price, plan_snapshot, payment_method, upi_id, payment_status,
         payment_started_at, client_ip, created_at, updated_at
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_verification', ?, ?, ?, ?)
-    `).run(
+    `, [
       id,
       orderRef,
       hashMobile(digits),
@@ -89,8 +88,8 @@ ordersRouter.post('/orders', (req, res) => {
       now, // payment_started_at
       clientIp,
       now,
-      now
-    );
+      now,
+    ]);
 
     const windowSecs = paymentMethod === 'qr' ? 300 : 210;
 
@@ -123,15 +122,15 @@ ordersRouter.post('/orders/:orderRef/confirm', (_req, res) => {
  * GET /api/orders/:orderRef/status
  * Check order status (public, but only returns non-sensitive info).
  */
-ordersRouter.get('/orders/:orderRef/status', (req, res) => {
+ordersRouter.get('/orders/:orderRef/status', async (req, res) => {
   try {
     const { orderRef } = req.params;
 
-    const order = db.prepare(`
+    const order = await dbAdapter.queryOne<any>(`
       SELECT order_ref, masked_mobile, provider_name, plan_price, payment_method,
              payment_status, payment_started_at, created_at
       FROM recharge_orders WHERE order_ref = ?
-    `).get(orderRef) as any;
+    `, [orderRef]);
 
     if (!order) {
       return res.status(404).json({ error: 'Order not found.' });

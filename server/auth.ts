@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { db } from './db';
+import { dbAdapter } from './dbAdapter';
 import crypto from 'crypto';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'antigravity-phonepe-admin-supersecret-jwt-key-2026';
@@ -43,8 +43,7 @@ export function clearAuthCookie(res: Response) {
 }
 
 // Authentication Middleware
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  // Support either HttpOnly cookie or Authorization: Bearer header
+export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   let token = req.cookies?.admin_token;
   if (!token && req.headers.authorization?.startsWith('Bearer ')) {
     token = req.headers.authorization.split(' ')[1];
@@ -58,13 +57,13 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
     const decoded = jwt.verify(token, JWT_SECRET) as AdminPayload;
 
     // Verify user still exists and is active in database
-    const user = db.prepare('SELECT id, username, email, role, status FROM admin_users WHERE id = ?').get(decoded.id) as {
+    const user = await dbAdapter.queryOne<{
       id: string;
       username: string;
       email: string;
       role: 'owner' | 'manager' | 'viewer';
       status: string;
-    } | undefined;
+    }>('SELECT id, username, email, role, status FROM admin_users WHERE id = ?', [decoded.id]);
 
     if (!user || user.status !== 'active') {
       return res.status(401).json({ error: 'User account inactive or session invalid.' });
@@ -100,7 +99,7 @@ export function requireRole(allowedRoles: ('owner' | 'manager' | 'viewer')[]) {
 }
 
 // Log Audit Action
-export function logAudit(
+export async function logAudit(
   admin: { id: string; username: string } | undefined,
   action: string,
   entityType: string,
@@ -115,23 +114,23 @@ export function logAudit(
   const id = 'audit-' + crypto.randomUUID();
 
   try {
-    db.prepare(`
+    await dbAdapter.execute(`
       INSERT INTO admin_audit_logs (id, admin_id, admin_username, action, entity_type, entity_id, summary, ip_address, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, adminId, adminUsername, action, entityType, entityId, summary, ip, now);
+    `, [id, adminId, adminUsername, action, entityType, entityId, summary, ip, now]);
   } catch (err) {
     console.error('[AUDIT_ERROR] Failed to write audit log:', err);
   }
 }
 
 // Brute-force Login Rate Limiter (5 attempts per 15 minutes)
-export function checkLoginRateLimit(ip: string): { allowed: boolean; retryAfterSeconds?: number } {
+export async function checkLoginRateLimit(ip: string): Promise<{ allowed: boolean; retryAfterSeconds?: number }> {
   const now = Date.now();
-  const record = db.prepare('SELECT attempts, last_attempt, blocked_until FROM login_attempts WHERE ip = ?').get(ip) as {
+  const record = await dbAdapter.queryOne<{
     attempts: number;
     last_attempt: number;
     blocked_until: number;
-  } | undefined;
+  }>('SELECT attempts, last_attempt, blocked_until FROM login_attempts WHERE ip = ?', [ip]);
 
   if (record) {
     if (record.blocked_until > now) {
@@ -139,36 +138,35 @@ export function checkLoginRateLimit(ip: string): { allowed: boolean; retryAfterS
       return { allowed: false, retryAfterSeconds: waitSec };
     }
 
-    // Reset attempts if last attempt was > 15 minutes ago
     if (now - record.last_attempt > 15 * 60 * 1000) {
-      db.prepare('UPDATE login_attempts SET attempts = 0, last_attempt = ?, blocked_until = 0 WHERE ip = ?').run(now, ip);
+      await dbAdapter.execute('UPDATE login_attempts SET attempts = 0, last_attempt = ?, blocked_until = 0 WHERE ip = ?', [now, ip]);
     }
   }
 
   return { allowed: true };
 }
 
-export function recordFailedLogin(ip: string) {
+export async function recordFailedLogin(ip: string) {
   const now = Date.now();
-  const record = db.prepare('SELECT attempts FROM login_attempts WHERE ip = ?').get(ip) as { attempts: number } | undefined;
+  const record = await dbAdapter.queryOne<{ attempts: number }>('SELECT attempts FROM login_attempts WHERE ip = ?', [ip]);
 
   if (!record) {
-    db.prepare('INSERT INTO login_attempts (ip, attempts, last_attempt, blocked_until) VALUES (?, 1, ?, 0)').run(ip, now);
+    await dbAdapter.execute('INSERT INTO login_attempts (ip, attempts, last_attempt, blocked_until) VALUES (?, 1, ?, 0)', [ip, now]);
   } else {
     const newAttempts = record.attempts + 1;
     let blockedUntil = 0;
     if (newAttempts >= 5) {
-      blockedUntil = now + 15 * 60 * 1000; // 15 minute lock
+      blockedUntil = now + 15 * 60 * 1000;
     }
-    db.prepare('UPDATE login_attempts SET attempts = ?, last_attempt = ?, blocked_until = ? WHERE ip = ?').run(
+    await dbAdapter.execute('UPDATE login_attempts SET attempts = ?, last_attempt = ?, blocked_until = ? WHERE ip = ?', [
       newAttempts,
       now,
       blockedUntil,
-      ip
-    );
+      ip,
+    ]);
   }
 }
 
-export function resetLoginRateLimit(ip: string) {
-  db.prepare('DELETE FROM login_attempts WHERE ip = ?').run(ip);
+export async function resetLoginRateLimit(ip: string) {
+  await dbAdapter.execute('DELETE FROM login_attempts WHERE ip = ?', [ip]);
 }

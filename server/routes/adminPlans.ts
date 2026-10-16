@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db } from '../db';
+import { dbAdapter } from '../dbAdapter';
 import { requireAuth, requireRole, logAudit, type AuthenticatedRequest } from '../auth';
 import crypto from 'crypto';
 
@@ -7,27 +7,26 @@ export const adminPlansRouter = Router();
 
 adminPlansRouter.use(requireAuth);
 
-// GET /api/admin/plans - List plans with search, filter, pagination
-adminPlansRouter.get('/', (req, res) => {
+// GET /api/admin/plans - List all plans with filtering & pagination
+adminPlansRouter.get('/', async (req, res) => {
   try {
-    const { search, providerId, status, page = 1, limit = 50 } = req.query;
+    const { providerId, category, status, search, page = 1, limit = 20 } = req.query;
 
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 50));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
     const offset = (pageNum - 1) * limitNum;
 
     let whereClause = 'WHERE 1=1';
     const params: (string | number)[] = [];
 
-    if (search) {
-      whereClause += ` AND (p.id LIKE ? OR p.data_allowance LIKE ? OR p.tag LIKE ? OR p.validity LIKE ?)`;
-      const s = `%${search}%`;
-      params.push(s, s, s, s);
-    }
-
     if (providerId && providerId !== 'all') {
       whereClause += ` AND p.provider_id = ?`;
       params.push(providerId as string);
+    }
+
+    if (category && category !== 'all') {
+      whereClause += ` AND p.category = ?`;
+      params.push(category as string);
     }
 
     if (status && status !== 'all') {
@@ -35,28 +34,40 @@ adminPlansRouter.get('/', (req, res) => {
       params.push(status as string);
     }
 
-    const countQuery = `SELECT COUNT(*) as total FROM recharge_plans p ${whereClause}`;
-    const total = (db.prepare(countQuery).get(...params) as { total: number }).total;
+    if (search) {
+      whereClause += ` AND (p.price LIKE ? OR p.validity LIKE ? OR p.data_allowance LIKE ? OR p.tag LIKE ? OR prov.name LIKE ?)`;
+      const searchParam = `%${search}%`;
+      params.push(searchParam, searchParam, searchParam, searchParam, searchParam);
+    }
+
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM recharge_plans p 
+      LEFT JOIN network_providers prov ON p.provider_id = prov.id 
+      ${whereClause}
+    `;
+    const countRow = await dbAdapter.queryOne<{ total: number }>(countQuery, params);
+    const total = Number(countRow?.total ?? 0);
 
     const query = `
       SELECT 
         p.id,
-        p.provider_id as providerId,
-        prov.name as providerName,
-        prov.logo_url as providerLogo,
+        p.provider_id as "providerId",
+        prov.name as "providerName",
+        prov.logo_url as "providerLogo",
         p.price,
-        p.original_price as originalPrice,
+        p.original_price as "originalPrice",
         p.validity,
-        p.data_allowance as dataAllowance,
+        p.data_allowance as "dataAllowance",
         p.voice,
         p.sms,
         p.tag,
         p.category,
         p.description,
         p.status,
-        p.display_order as displayOrder,
-        p.created_at as createdAt,
-        p.updated_at as updatedAt
+        p.display_order as "displayOrder",
+        p.created_at as "createdAt",
+        p.updated_at as "updatedAt"
       FROM recharge_plans p
       LEFT JOIN network_providers prov ON p.provider_id = prov.id
       ${whereClause}
@@ -64,11 +75,11 @@ adminPlansRouter.get('/', (req, res) => {
       LIMIT ? OFFSET ?
     `;
 
-    const plans = db.prepare(query).all(...params, limitNum, offset);
+    const plansResult = await dbAdapter.query(query, [...params, limitNum, offset]);
 
     res.json({
       success: true,
-      plans,
+      plans: plansResult.rows,
       pagination: {
         total,
         page: pageNum,
@@ -83,7 +94,7 @@ adminPlansRouter.get('/', (req, res) => {
 });
 
 // POST /api/admin/plans - Create new plan
-adminPlansRouter.post('/', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
+adminPlansRouter.post('/', requireRole(['owner', 'manager']), async (req: AuthenticatedRequest, res) => {
   try {
     const { providerId, price, originalPrice, validity, dataAllowance, voice, sms, tag, category, description, status, displayOrder } = req.body;
 
@@ -96,8 +107,7 @@ adminPlansRouter.post('/', requireRole(['owner', 'manager']), (req: Authenticate
       return res.status(400).json({ error: 'Price must be a valid non-negative number.' });
     }
 
-    // Verify provider exists
-    const provider = db.prepare('SELECT id, name FROM network_providers WHERE id = ?').get(providerId) as { id: string; name: string } | undefined;
+    const provider = await dbAdapter.queryOne<{ id: string; name: string }>('SELECT id, name FROM network_providers WHERE id = ?', [providerId]);
     if (!provider) {
       return res.status(400).json({ error: 'Selected network provider does not exist.' });
     }
@@ -105,10 +115,10 @@ adminPlansRouter.post('/', requireRole(['owner', 'manager']), (req: Authenticate
     const id = `${providerId}-${numPrice}-${crypto.randomUUID().slice(0, 4)}`;
     const now = new Date().toISOString();
 
-    db.prepare(`
+    await dbAdapter.execute(`
       INSERT INTO recharge_plans (id, provider_id, price, original_price, validity, data_allowance, voice, sms, tag, category, description, status, display_order, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       id,
       providerId,
       numPrice,
@@ -123,10 +133,10 @@ adminPlansRouter.post('/', requireRole(['owner', 'manager']), (req: Authenticate
       status || 'published',
       Number(displayOrder) || 0,
       now,
-      now
-    );
+      now,
+    ]);
 
-    logAudit(req.admin, 'PLAN_CREATE', 'PLAN', id, `Created ₹${numPrice} plan for ${provider.name} (${validity}, ${dataAllowance})`, req);
+    await logAudit(req.admin, 'PLAN_CREATE', 'PLAN', id, `Created ₹${numPrice} plan for ${provider.name} (${validity}, ${dataAllowance})`, req);
 
     res.json({ success: true, message: 'Plan created successfully', id });
   } catch (err) {
@@ -136,12 +146,12 @@ adminPlansRouter.post('/', requireRole(['owner', 'manager']), (req: Authenticate
 });
 
 // PUT /api/admin/plans/:id - Update plan
-adminPlansRouter.put('/:id', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
+adminPlansRouter.put('/:id', requireRole(['owner', 'manager']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     const { providerId, price, originalPrice, validity, dataAllowance, voice, sms, tag, category, description, status, displayOrder } = req.body;
 
-    const existing = db.prepare('SELECT id, provider_id FROM recharge_plans WHERE id = ?').get(id);
+    const existing = await dbAdapter.queryOne('SELECT id, provider_id FROM recharge_plans WHERE id = ?', [id]);
     if (!existing) {
       return res.status(404).json({ error: 'Plan not found.' });
     }
@@ -153,11 +163,11 @@ adminPlansRouter.put('/:id', requireRole(['owner', 'manager']), (req: Authentica
 
     const now = new Date().toISOString();
 
-    db.prepare(`
+    await dbAdapter.execute(`
       UPDATE recharge_plans
       SET provider_id = ?, price = ?, original_price = ?, validity = ?, data_allowance = ?, voice = ?, sms = ?, tag = ?, category = ?, description = ?, status = ?, display_order = ?, updated_at = ?
       WHERE id = ?
-    `).run(
+    `, [
       providerId,
       numPrice,
       Number(originalPrice) || numPrice,
@@ -171,10 +181,10 @@ adminPlansRouter.put('/:id', requireRole(['owner', 'manager']), (req: Authentica
       status || 'published',
       Number(displayOrder) || 0,
       now,
-      id
-    );
+      id,
+    ]);
 
-    logAudit(req.admin, 'PLAN_UPDATE', 'PLAN', id, `Updated ₹${numPrice} plan (${id})`, req);
+    await logAudit(req.admin, 'PLAN_UPDATE', 'PLAN', id, `Updated ₹${numPrice} plan (${id})`, req);
 
     res.json({ success: true, message: 'Plan updated successfully' });
   } catch (err) {
@@ -184,7 +194,7 @@ adminPlansRouter.put('/:id', requireRole(['owner', 'manager']), (req: Authentica
 });
 
 // PATCH /api/admin/plans/:id/status - Publish, Hide, Draft, Archive
-adminPlansRouter.patch('/:id/status', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
+adminPlansRouter.patch('/:id/status', requireRole(['owner', 'manager']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -194,15 +204,15 @@ adminPlansRouter.patch('/:id/status', requireRole(['owner', 'manager']), (req: A
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
 
-    const plan = db.prepare('SELECT id, price, status FROM recharge_plans WHERE id = ?').get(id) as { id: string; price: number; status: string } | undefined;
+    const plan = await dbAdapter.queryOne<{ id: string; price: number; status: string }>('SELECT id, price, status FROM recharge_plans WHERE id = ?', [id]);
     if (!plan) {
       return res.status(404).json({ error: 'Plan not found.' });
     }
 
     const now = new Date().toISOString();
-    db.prepare('UPDATE recharge_plans SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
+    await dbAdapter.execute('UPDATE recharge_plans SET status = ?, updated_at = ? WHERE id = ?', [status, now, id]);
 
-    logAudit(req.admin, 'PLAN_STATUS_CHANGE', 'PLAN', id, `Changed plan ₹${plan.price} status from '${plan.status}' to '${status}'`, req);
+    await logAudit(req.admin, 'PLAN_STATUS_CHANGE', 'PLAN', id, `Changed plan ₹${plan.price} status from '${plan.status}' to '${status}'`, req);
 
     res.json({ success: true, message: `Plan status updated to '${status}'.` });
   } catch (err) {
@@ -212,31 +222,30 @@ adminPlansRouter.patch('/:id/status', requireRole(['owner', 'manager']), (req: A
 });
 
 // DELETE /api/admin/plans/:id - Archive or delete plan safely
-adminPlansRouter.delete('/:id', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
+adminPlansRouter.delete('/:id', requireRole(['owner', 'manager']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-    const plan = db.prepare('SELECT id, price FROM recharge_plans WHERE id = ?').get(id) as { id: string; price: number } | undefined;
+    const plan = await dbAdapter.queryOne<{ id: string; price: number }>('SELECT id, price FROM recharge_plans WHERE id = ?', [id]);
 
     if (!plan) {
       return res.status(404).json({ error: 'Plan not found.' });
     }
 
-    // Check if any customer submissions reference this plan
-    const subCount = (db.prepare('SELECT COUNT(*) as c FROM customer_submissions WHERE plan_id = ?').get(id) as { c: number }).c;
+    const subCountRow = await dbAdapter.queryOne<{ c: number }>('SELECT COUNT(*) as c FROM customer_submissions WHERE plan_id = ?', [id]);
+    const subCount = Number(subCountRow?.c ?? 0);
 
     if (subCount > 0) {
-      // Historical references exist - archive instead to preserve history
       const now = new Date().toISOString();
-      db.prepare(`UPDATE recharge_plans SET status = 'archived', updated_at = ? WHERE id = ?`).run(now, id);
-      logAudit(req.admin, 'PLAN_ARCHIVE', 'PLAN', id, `Archived plan ₹${plan.price} because it has ${subCount} historical submissions`, req);
+      await dbAdapter.execute(`UPDATE recharge_plans SET status = 'archived', updated_at = ? WHERE id = ?`, [now, id]);
+      await logAudit(req.admin, 'PLAN_ARCHIVE', 'PLAN', id, `Archived plan ₹${plan.price} because it has ${subCount} historical submissions`, req);
       return res.json({
         success: true,
         message: `Plan has ${subCount} historical customer submissions, so it was safely Archived instead of permanently deleted to preserve referential records.`,
       });
     }
 
-    db.prepare('DELETE FROM recharge_plans WHERE id = ?').run(id);
-    logAudit(req.admin, 'PLAN_DELETE', 'PLAN', id, `Deleted unused plan ₹${plan.price} (${id})`, req);
+    await dbAdapter.execute('DELETE FROM recharge_plans WHERE id = ?', [id]);
+    await logAudit(req.admin, 'PLAN_DELETE', 'PLAN', id, `Deleted unused plan ₹${plan.price} (${id})`, req);
 
     res.json({ success: true, message: 'Plan deleted successfully.' });
   } catch (err) {

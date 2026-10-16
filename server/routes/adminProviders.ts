@@ -1,7 +1,6 @@
 import { Router } from 'express';
-import { db } from '../db';
+import { dbAdapter } from '../dbAdapter';
 import { requireAuth, requireRole, logAudit, type AuthenticatedRequest } from '../auth';
-import crypto from 'crypto';
 
 export const adminProvidersRouter = Router();
 
@@ -9,29 +8,29 @@ export const adminProvidersRouter = Router();
 adminProvidersRouter.use(requireAuth);
 
 // GET /api/admin/providers - list all providers with associated plan counts
-adminProvidersRouter.get('/', (_req, res) => {
+adminProvidersRouter.get('/', async (_req, res) => {
   try {
-    const providers = db.prepare(`
+    const result = await dbAdapter.query(`
       SELECT 
         p.id, 
         p.slug, 
         p.name, 
-        p.brand_color as brandColor, 
-        p.badge_bg as badgeBg, 
-        p.text_color as textColor, 
+        p.brand_color as "brandColor", 
+        p.badge_bg as "badgeBg", 
+        p.text_color as "textColor", 
         p.tagline, 
-        p.logo_url as logoUrl, 
+        p.logo_url as "logoUrl", 
         p.description, 
-        p.is_active as isActive, 
-        p.display_order as displayOrder, 
-        p.created_at as createdAt, 
-        p.updated_at as updatedAt,
-        (SELECT COUNT(*) FROM recharge_plans WHERE provider_id = p.id) as planCount
+        p.is_active as "isActive", 
+        p.display_order as "displayOrder", 
+        p.created_at as "createdAt", 
+        p.updated_at as "updatedAt",
+        (SELECT COUNT(*) FROM recharge_plans WHERE provider_id = p.id) as "planCount"
       FROM network_providers p
       ORDER BY p.display_order ASC, p.name ASC
-    `).all();
+    `);
 
-    res.json({ success: true, providers });
+    res.json({ success: true, providers: result.rows });
   } catch (err) {
     console.error('[ADMIN_API_ERROR] GET /providers:', err);
     res.status(500).json({ error: 'Failed to retrieve providers' });
@@ -39,7 +38,7 @@ adminProvidersRouter.get('/', (_req, res) => {
 });
 
 // POST /api/admin/providers - Add provider
-adminProvidersRouter.post('/', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
+adminProvidersRouter.post('/', requireRole(['owner', 'manager']), async (req: AuthenticatedRequest, res) => {
   try {
     const { name, slug, brandColor, badgeBg, textColor, tagline, logoUrl, description, isActive, displayOrder } = req.body;
 
@@ -49,8 +48,7 @@ adminProvidersRouter.post('/', requireRole(['owner', 'manager']), (req: Authenti
 
     const cleanSlug = slug.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '');
 
-    // Check slug uniqueness
-    const existing = db.prepare('SELECT id FROM network_providers WHERE slug = ?').get(cleanSlug);
+    const existing = await dbAdapter.queryOne('SELECT id FROM network_providers WHERE slug = ?', [cleanSlug]);
     if (existing) {
       return res.status(400).json({ error: `Provider with identifier '${cleanSlug}' already exists.` });
     }
@@ -58,10 +56,10 @@ adminProvidersRouter.post('/', requireRole(['owner', 'manager']), (req: Authenti
     const id = cleanSlug;
     const now = new Date().toISOString();
 
-    db.prepare(`
+    await dbAdapter.execute(`
       INSERT INTO network_providers (id, slug, name, brand_color, badge_bg, text_color, tagline, logo_url, description, is_active, display_order, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       id,
       cleanSlug,
       name.trim(),
@@ -74,10 +72,10 @@ adminProvidersRouter.post('/', requireRole(['owner', 'manager']), (req: Authenti
       isActive === false ? 0 : 1,
       Number(displayOrder) || 0,
       now,
-      now
-    );
+      now,
+    ]);
 
-    logAudit(req.admin, 'PROVIDER_CREATE', 'PROVIDER', id, `Created new telecom provider '${name}' (${cleanSlug})`, req);
+    await logAudit(req.admin, 'PROVIDER_CREATE', 'PROVIDER', id, `Created new telecom provider '${name}' (${cleanSlug})`, req);
 
     res.json({ success: true, message: 'Provider added successfully', id });
   } catch (err) {
@@ -87,23 +85,23 @@ adminProvidersRouter.post('/', requireRole(['owner', 'manager']), (req: Authenti
 });
 
 // PUT /api/admin/providers/:id - Edit provider
-adminProvidersRouter.put('/:id', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
+adminProvidersRouter.put('/:id', requireRole(['owner', 'manager']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     const { name, brandColor, badgeBg, textColor, tagline, logoUrl, description, isActive, displayOrder } = req.body;
 
-    const existing = db.prepare('SELECT id, name FROM network_providers WHERE id = ?').get(id) as { id: string; name: string } | undefined;
+    const existing = await dbAdapter.queryOne<{ id: string; name: string }>('SELECT id, name FROM network_providers WHERE id = ?', [id]);
     if (!existing) {
       return res.status(404).json({ error: 'Provider not found.' });
     }
 
     const now = new Date().toISOString();
 
-    db.prepare(`
+    await dbAdapter.execute(`
       UPDATE network_providers
       SET name = ?, brand_color = ?, badge_bg = ?, text_color = ?, tagline = ?, logo_url = ?, description = ?, is_active = ?, display_order = ?, updated_at = ?
       WHERE id = ?
-    `).run(
+    `, [
       name.trim(),
       brandColor || '#6426AD',
       badgeBg || '#F2EAFE',
@@ -114,10 +112,10 @@ adminProvidersRouter.put('/:id', requireRole(['owner', 'manager']), (req: Authen
       isActive === false ? 0 : 1,
       Number(displayOrder) || 0,
       now,
-      id
-    );
+      id,
+    ]);
 
-    logAudit(req.admin, 'PROVIDER_UPDATE', 'PROVIDER', id, `Updated telecom provider '${name}'`, req);
+    await logAudit(req.admin, 'PROVIDER_UPDATE', 'PROVIDER', id, `Updated telecom provider '${name}'`, req);
 
     res.json({ success: true, message: 'Provider updated successfully' });
   } catch (err) {
@@ -127,25 +125,22 @@ adminProvidersRouter.put('/:id', requireRole(['owner', 'manager']), (req: Authen
 });
 
 // PATCH /api/admin/providers/:id/toggle - Toggle active status
-adminProvidersRouter.patch('/:id/toggle', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
+adminProvidersRouter.patch('/:id/toggle', requireRole(['owner', 'manager']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-    const provider = db.prepare('SELECT id, name, is_active FROM network_providers WHERE id = ?').get(id) as {
-      id: string;
-      name: string;
-      is_active: number;
-    } | undefined;
+    const provider = await dbAdapter.queryOne<{ id: string; name: string; is_active: number | boolean }>('SELECT id, name, is_active FROM network_providers WHERE id = ?', [id]);
 
     if (!provider) {
       return res.status(404).json({ error: 'Provider not found.' });
     }
 
-    const newStatus = provider.is_active === 1 ? 0 : 1;
+    const currentActive = provider.is_active === 1 || provider.is_active === true;
+    const newStatus = currentActive ? 0 : 1;
     const now = new Date().toISOString();
 
-    db.prepare('UPDATE network_providers SET is_active = ?, updated_at = ? WHERE id = ?').run(newStatus, now, id);
+    await dbAdapter.execute('UPDATE network_providers SET is_active = ?, updated_at = ? WHERE id = ?', [newStatus, now, id]);
 
-    logAudit(
+    await logAudit(
       req.admin,
       newStatus === 1 ? 'PROVIDER_ENABLED' : 'PROVIDER_DISABLED',
       'PROVIDER',
@@ -166,34 +161,34 @@ adminProvidersRouter.patch('/:id/toggle', requireRole(['owner', 'manager']), (re
 });
 
 // DELETE /api/admin/providers/:id - Safe deletion check
-adminProvidersRouter.delete('/:id', requireRole(['owner']), (req: AuthenticatedRequest, res) => {
+adminProvidersRouter.delete('/:id', requireRole(['owner']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
 
-    const provider = db.prepare('SELECT id, name FROM network_providers WHERE id = ?').get(id) as { id: string; name: string } | undefined;
+    const provider = await dbAdapter.queryOne<{ id: string; name: string }>('SELECT id, name FROM network_providers WHERE id = ?', [id]);
     if (!provider) {
       return res.status(404).json({ error: 'Provider not found.' });
     }
 
-    // Check dependent historical submissions
-    const submissionCount = (db.prepare('SELECT COUNT(*) as c FROM customer_submissions WHERE provider_id = ?').get(id) as { c: number }).c;
+    const subCountRow = await dbAdapter.queryOne<{ c: number }>('SELECT COUNT(*) as c FROM customer_submissions WHERE provider_id = ?', [id]);
+    const submissionCount = Number(subCountRow?.c ?? 0);
     if (submissionCount > 0) {
       return res.status(400).json({
         error: `Cannot permanently delete provider '${provider.name}' because it has ${submissionCount} historical customer submission record(s). Please disable/deactivate the provider instead to preserve historical integrity.`,
       });
     }
 
-    // Check dependent recharge plans
-    const planCount = (db.prepare('SELECT COUNT(*) as c FROM recharge_plans WHERE provider_id = ?').get(id) as { c: number }).c;
+    const planCountRow = await dbAdapter.queryOne<{ c: number }>('SELECT COUNT(*) as c FROM recharge_plans WHERE provider_id = ?', [id]);
+    const planCount = Number(planCountRow?.c ?? 0);
     if (planCount > 0) {
       return res.status(400).json({
         error: `Cannot permanently delete provider '${provider.name}' because it has ${planCount} associated recharge plan(s). Please archive or remove those plans first, or deactivate the provider.`,
       });
     }
 
-    db.prepare('DELETE FROM network_providers WHERE id = ?').run(id);
+    await dbAdapter.execute('DELETE FROM network_providers WHERE id = ?', [id]);
 
-    logAudit(req.admin, 'PROVIDER_DELETE', 'PROVIDER', id, `Deleted unused telecom provider '${provider.name}'`, req);
+    await logAudit(req.admin, 'PROVIDER_DELETE', 'PROVIDER', id, `Deleted unused telecom provider '${provider.name}'`, req);
 
     res.json({ success: true, message: `Provider '${provider.name}' deleted successfully.` });
   } catch (err) {

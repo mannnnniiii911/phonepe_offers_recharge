@@ -1,20 +1,20 @@
 import { Router } from 'express';
-import { db } from '../db';
+import { dbAdapter } from '../dbAdapter';
 import crypto from 'crypto';
 
 export const publicRouter = Router();
 
-// GET /api/providers - active providers for customer operator selector
-publicRouter.get('/providers', (_req, res) => {
+// GET /api/providers - active telecom operators
+publicRouter.get('/providers', async (_req, res) => {
   try {
-    const providers = db.prepare(`
-      SELECT id, slug, name, brand_color as brandColor, badge_bg as badgeBg, text_color as textColor, tagline, logo_url as logoUrl, description
+    const result = await dbAdapter.query(`
+      SELECT id, slug, name, brand_color as "brandColor", badge_bg as "badgeBg", text_color as "textColor", tagline, logo_url as "logoUrl", description
       FROM network_providers
       WHERE is_active = 1
       ORDER BY display_order ASC, name ASC
-    `).all();
+    `);
 
-    res.json({ success: true, providers });
+    res.json({ success: true, providers: result.rows });
   } catch (err) {
     console.error('[API_ERROR] GET /api/providers:', err);
     res.status(500).json({ error: 'Failed to retrieve providers' });
@@ -22,13 +22,13 @@ publicRouter.get('/providers', (_req, res) => {
 });
 
 // GET /api/plans - published plans for customer website
-publicRouter.get('/plans', (req, res) => {
+publicRouter.get('/plans', async (req, res) => {
   try {
     const { providerId, operatorId } = req.query;
     const targetProvider = (providerId || operatorId) as string | undefined;
 
     let query = `
-      SELECT id, provider_id as operatorId, price, original_price as originalPrice, validity, data_allowance as data, voice, sms, tag, category, status, display_order
+      SELECT id, provider_id as "operatorId", price, original_price as "originalPrice", validity, data_allowance as data, voice, sms, tag, category, status, display_order as "display_order"
       FROM recharge_plans
       WHERE status = 'published'
     `;
@@ -41,8 +41,8 @@ publicRouter.get('/plans', (req, res) => {
 
     query += ` ORDER BY price DESC`;
 
-    const plans = db.prepare(query).all(...params);
-    res.json({ success: true, plans });
+    const result = await dbAdapter.query(query, params);
+    res.json({ success: true, plans: result.rows });
   } catch (err) {
     console.error('[API_ERROR] GET /api/plans:', err);
     res.status(500).json({ error: 'Failed to retrieve plans' });
@@ -50,16 +50,10 @@ publicRouter.get('/plans', (req, res) => {
 });
 
 // GET /api/offers/active - active promotional campaign & server-synchronized countdown timer
-publicRouter.get('/offers/active', (_req, res) => {
+publicRouter.get('/offers/active', async (_req, res) => {
   try {
     const now = new Date();
-    const offer = db.prepare(`
-      SELECT id, title, message, subtitle, banner_url as bannerUrl, timer_mode as timerMode, start_time as startTime, end_time as endTime, duration_minutes as durationMinutes, status
-      FROM special_offers
-      WHERE status = 'active'
-      ORDER BY display_order ASC
-      LIMIT 1
-    `).get() as {
+    const offer = await dbAdapter.queryOne<{
       id: string;
       title: string;
       message: string;
@@ -70,20 +64,24 @@ publicRouter.get('/offers/active', (_req, res) => {
       endTime: string;
       durationMinutes: number;
       status: string;
-    } | undefined;
+    }>(`
+      SELECT id, title, message, subtitle, banner_url as "bannerUrl", timer_mode as "timerMode", start_time as "startTime", end_time as "endTime", duration_minutes as "durationMinutes", status
+      FROM special_offers
+      WHERE status = 'active'
+      ORDER BY display_order ASC
+      LIMIT 1
+    `);
 
     if (!offer) {
       return res.json({ success: true, offer: null });
     }
 
-    // Check if offer has expired based on server time
     const endTimestamp = new Date(offer.endTime).getTime();
     const currentTimestamp = now.getTime();
     const isExpired = endTimestamp <= currentTimestamp;
 
     if (isExpired) {
-      // Auto-update status to expired if duration/deadline passed
-      db.prepare(`UPDATE special_offers SET status = 'expired', updated_at = ? WHERE id = ?`).run(now.toISOString(), offer.id);
+      await dbAdapter.execute(`UPDATE special_offers SET status = 'expired', updated_at = ? WHERE id = ?`, [now.toISOString(), offer.id]);
       return res.json({
         success: true,
         offer: {
@@ -112,11 +110,13 @@ publicRouter.get('/offers/active', (_req, res) => {
 });
 
 // GET /api/settings - public settings for headline, banner, and notice
-publicRouter.get('/settings', (_req, res) => {
+publicRouter.get('/settings', async (_req, res) => {
   try {
-    const rows = db.prepare(`SELECT setting_key, setting_value FROM website_settings`).all() as { setting_key: string; setting_value: string }[];
+    const result = await dbAdapter.query<{ setting_key: string; setting_value: string }>(
+      `SELECT setting_key, setting_value FROM website_settings`
+    );
     const settings: Record<string, string> = {};
-    for (const row of rows) {
+    for (const row of result.rows) {
       settings[row.setting_key] = row.setting_value;
     }
 
@@ -133,8 +133,8 @@ publicRouter.get('/settings', (_req, res) => {
         privacyNoticeText: settings.privacy_notice_text || 'By entering your number, you consent to processing your mobile number and operator for recharge estimation.',
         privacyNoticeVersion: settings.privacy_notice_version || 'v1.0',
         customerSupportContact: settings.customer_support_contact || settings.support_contact || '',
-        upiId: settings.upi_id || 'q462939567@ybl',
-        qrCodeUrl: settings.qr_code_url || '/assets/upi-qr.jpg',
+        upiId: settings.upi_id || 'qwerty779@ibl',
+        qrCodeUrl: settings.qr_code_url || '',
       },
     });
   } catch (err) {
@@ -144,8 +144,7 @@ publicRouter.get('/settings', (_req, res) => {
 });
 
 // POST /api/submissions - Customer Mobile-Number Submission
-// Deliberate form submission with explicit consent
-publicRouter.post('/submissions', (req, res) => {
+publicRouter.post('/submissions', async (req, res) => {
   try {
     const { mobileNumber, providerId, planId, consentVersion } = req.body;
 
@@ -157,7 +156,6 @@ publicRouter.post('/submissions', (req, res) => {
       return res.status(400).json({ error: 'Mobile number is required.' });
     }
 
-    // Server-side mobile number validation
     const cleanedNumber = String(mobileNumber).replace(/\D/g, '');
     const tenDigit = cleanedNumber.length === 12 && cleanedNumber.startsWith('91') ? cleanedNumber.slice(2) : cleanedNumber;
 
@@ -165,21 +163,20 @@ publicRouter.post('/submissions', (req, res) => {
       return res.status(400).json({ error: 'Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.' });
     }
 
-    // Verify provider exists and is active
-    const provider = db.prepare('SELECT id, name, is_active FROM network_providers WHERE id = ?').get(providerId) as {
+    const provider = await dbAdapter.queryOne<{
       id: string;
       name: string;
-      is_active: number;
-    } | undefined;
+      is_active: number | boolean;
+    }>('SELECT id, name, is_active FROM network_providers WHERE id = ?', [providerId]);
 
-    if (!provider || provider.is_active !== 1) {
+    const isActive = provider && (provider.is_active === 1 || provider.is_active === true);
+    if (!provider || !isActive) {
       return res.status(400).json({ error: 'The selected network provider is currently unavailable.' });
     }
 
-    // Optional plan snapshot
     let planSnapshot: string | null = null;
     if (planId) {
-      const plan = db.prepare('SELECT * FROM recharge_plans WHERE id = ?').get(planId);
+      const plan = await dbAdapter.queryOne('SELECT * FROM recharge_plans WHERE id = ?', [planId]);
       if (plan) {
         planSnapshot = JSON.stringify(plan);
       }
@@ -189,12 +186,11 @@ publicRouter.post('/submissions', (req, res) => {
     const now = new Date().toISOString();
     const submissionId = 'sub-' + crypto.randomUUID();
 
-    // Idempotency check: prevent duplicate rapid retries (within 10 seconds for same number and provider)
-    const recentDuplicate = db.prepare(`
+    const recentDuplicate = await dbAdapter.queryOne<{ id: string }>(`
       SELECT id FROM customer_submissions
       WHERE mobile_number = ? AND provider_id = ? AND created_at >= datetime('now', '-10 seconds')
       LIMIT 1
-    `).get(tenDigit, provider.id) as { id: string } | undefined;
+    `, [tenDigit, provider.id]);
 
     if (recentDuplicate) {
       return res.json({
@@ -204,10 +200,10 @@ publicRouter.post('/submissions', (req, res) => {
       });
     }
 
-    db.prepare(`
+    await dbAdapter.execute(`
       INSERT INTO customer_submissions (id, mobile_number, provider_id, provider_name, plan_id, plan_snapshot, status, consent_version, client_ip, created_at)
       VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, ?)
-    `).run(
+    `, [
       submissionId,
       tenDigit,
       provider.id,
@@ -216,8 +212,8 @@ publicRouter.post('/submissions', (req, res) => {
       planSnapshot,
       consentVersion || 'v1.0',
       ip,
-      now
-    );
+      now,
+    ]);
 
     res.json({
       success: true,

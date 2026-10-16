@@ -101,8 +101,8 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
           if (data.settings.upiId) {
             setActiveUpiId(data.settings.upiId);
           }
-          if (data.settings.qrCodeUrl) {
-            setActiveQrCodeUrl(data.settings.qrCodeUrl);
+          if (data.settings.qrCodeUrl !== undefined) {
+            setActiveQrCodeUrl(data.settings.qrCodeUrl || '');
           }
         }
       })

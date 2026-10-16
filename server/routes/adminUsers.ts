@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { db } from '../db';
+import { dbAdapter } from '../dbAdapter';
 import { requireAuth, requireRole, logAudit, type AuthenticatedRequest } from '../auth';
 import crypto from 'crypto';
 
@@ -9,15 +9,15 @@ export const adminUsersRouter = Router();
 adminUsersRouter.use(requireAuth);
 
 // GET /api/admin/users - List administrator users (Owner only)
-adminUsersRouter.get('/', requireRole(['owner']), (_req, res) => {
+adminUsersRouter.get('/', requireRole(['owner']), async (_req, res) => {
   try {
-    const users = db.prepare(`
-      SELECT id, username, email, role, status, created_at as createdAt, updated_at as updatedAt
+    const result = await dbAdapter.query(`
+      SELECT id, username, email, role, status, created_at as "createdAt", updated_at as "updatedAt"
       FROM admin_users
       ORDER BY created_at ASC
-    `).all();
+    `);
 
-    res.json({ success: true, users });
+    res.json({ success: true, users: result.rows });
   } catch (err) {
     console.error('[ADMIN_API_ERROR] GET /users:', err);
     res.status(500).json({ error: 'Failed to retrieve admin users' });
@@ -25,7 +25,7 @@ adminUsersRouter.get('/', requireRole(['owner']), (_req, res) => {
 });
 
 // POST /api/admin/users - Create new administrator user (Owner only)
-adminUsersRouter.post('/', requireRole(['owner']), (req: AuthenticatedRequest, res) => {
+adminUsersRouter.post('/', requireRole(['owner']), async (req: AuthenticatedRequest, res) => {
   try {
     const { username, email, password, role = 'viewer' } = req.body;
 
@@ -41,7 +41,7 @@ adminUsersRouter.post('/', requireRole(['owner']), (req: AuthenticatedRequest, r
     const cleanEmail = email.trim().toLowerCase();
 
     // Check existing
-    const existing = db.prepare('SELECT id FROM admin_users WHERE username = ? OR email = ?').get(cleanUsername, cleanEmail);
+    const existing = await dbAdapter.queryOne('SELECT id FROM admin_users WHERE username = ? OR email = ?', [cleanUsername, cleanEmail]);
     if (existing) {
       return res.status(400).json({ error: 'A user with this username or email already exists.' });
     }
@@ -51,12 +51,12 @@ adminUsersRouter.post('/', requireRole(['owner']), (req: AuthenticatedRequest, r
     const id = 'admin-' + crypto.randomUUID().slice(0, 8);
     const now = new Date().toISOString();
 
-    db.prepare(`
+    await dbAdapter.execute(`
       INSERT INTO admin_users (id, username, email, password_hash, role, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-    `).run(id, cleanUsername, cleanEmail, passwordHash, role, now, now);
+    `, [id, cleanUsername, cleanEmail, passwordHash, role, now, now]);
 
-    logAudit(req.admin, 'ADMIN_USER_CREATE', 'ADMIN_USER', id, `Created new administrator '${cleanUsername}' with role '${role}'`, req);
+    await logAudit(req.admin, 'ADMIN_USER_CREATE', 'ADMIN_USER', id, `Created new administrator '${cleanUsername}' with role '${role}'`, req);
 
     res.json({ success: true, message: 'Administrator created successfully', id });
   } catch (err) {
@@ -66,32 +66,33 @@ adminUsersRouter.post('/', requireRole(['owner']), (req: AuthenticatedRequest, r
 });
 
 // PUT /api/admin/users/:id/role - Change user role (Owner only)
-adminUsersRouter.put('/:id/role', requireRole(['owner']), (req: AuthenticatedRequest, res) => {
+adminUsersRouter.put('/:id/role', requireRole(['owner']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     const { role, status } = req.body;
 
-    const user = db.prepare('SELECT id, username, role FROM admin_users WHERE id = ?').get(id) as { id: string; username: string; role: string } | undefined;
+    const user = await dbAdapter.queryOne<{ id: string; username: string; role: string }>('SELECT id, username, role FROM admin_users WHERE id = ?', [id]);
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
     }
 
     // Protect last owner
     if (user.role === 'owner' && (role !== 'owner' || status === 'inactive')) {
-      const ownerCount = (db.prepare("SELECT COUNT(*) as c FROM admin_users WHERE role = 'owner' AND status = 'active'").get() as { c: number }).c;
+      const ownerCountRow = await dbAdapter.queryOne<{ c: number }>("SELECT COUNT(*) as c FROM admin_users WHERE role = 'owner' AND status = 'active'");
+      const ownerCount = Number(ownerCountRow?.c ?? 0);
       if (ownerCount <= 1) {
         return res.status(400).json({ error: 'Cannot downgrade or deactivate the only active Owner account.' });
       }
     }
 
     const now = new Date().toISOString();
-    db.prepare(`
+    await dbAdapter.execute(`
       UPDATE admin_users
       SET role = COALESCE(?, role), status = COALESCE(?, status), updated_at = ?
       WHERE id = ?
-    `).run(role || null, status || null, now, id);
+    `, [role || null, status || null, now, id]);
 
-    logAudit(req.admin, 'ADMIN_USER_UPDATE', 'ADMIN_USER', id, `Updated role/status for admin '${user.username}'`, req);
+    await logAudit(req.admin, 'ADMIN_USER_UPDATE', 'ADMIN_USER', id, `Updated role/status for admin '${user.username}'`, req);
 
     res.json({ success: true, message: 'Administrator updated successfully.' });
   } catch (err) {
@@ -101,7 +102,7 @@ adminUsersRouter.put('/:id/role', requireRole(['owner']), (req: AuthenticatedReq
 });
 
 // DELETE /api/admin/users/:id - Delete administrator (Owner only)
-adminUsersRouter.delete('/:id', requireRole(['owner']), (req: AuthenticatedRequest, res) => {
+adminUsersRouter.delete('/:id', requireRole(['owner']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
 
@@ -109,21 +110,22 @@ adminUsersRouter.delete('/:id', requireRole(['owner']), (req: AuthenticatedReque
       return res.status(400).json({ error: 'You cannot delete your own account.' });
     }
 
-    const user = db.prepare('SELECT id, username, role FROM admin_users WHERE id = ?').get(id) as { id: string; username: string; role: string } | undefined;
+    const user = await dbAdapter.queryOne<{ id: string; username: string; role: string }>('SELECT id, username, role FROM admin_users WHERE id = ?', [id]);
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
     }
 
     if (user.role === 'owner') {
-      const ownerCount = (db.prepare("SELECT COUNT(*) as c FROM admin_users WHERE role = 'owner'").get() as { c: number }).c;
+      const ownerCountRow = await dbAdapter.queryOne<{ c: number }>("SELECT COUNT(*) as c FROM admin_users WHERE role = 'owner'");
+      const ownerCount = Number(ownerCountRow?.c ?? 0);
       if (ownerCount <= 1) {
         return res.status(400).json({ error: 'Cannot delete the only Owner account.' });
       }
     }
 
-    db.prepare('DELETE FROM admin_users WHERE id = ?').run(id);
+    await dbAdapter.execute('DELETE FROM admin_users WHERE id = ?', [id]);
 
-    logAudit(req.admin, 'ADMIN_USER_DELETE', 'ADMIN_USER', id, `Deleted administrator '${user.username}'`, req);
+    await logAudit(req.admin, 'ADMIN_USER_DELETE', 'ADMIN_USER', id, `Deleted administrator '${user.username}'`, req);
 
     res.json({ success: true, message: 'Administrator deleted.' });
   } catch (err) {

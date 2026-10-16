@@ -18,7 +18,7 @@ export const HelpModal: React.FC = () => {
     },
     {
       q: 'What payment modes are accepted?',
-      a: 'All standard UPI applications including PhonePe, Paytm, Google Pay, BHIM, and QR scan.',
+      a: 'All standard UPI applications including PhonePe, Google Pay, Paytm, Navi, BHIM, and QR scan.',
     },
   ];
 

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db } from '../db';
+import { dbAdapter } from '../dbAdapter';
 import { requireAuth, requireRole, logAudit, type AuthenticatedRequest } from '../auth';
 
 export const adminSubmissionsRouter = Router();
@@ -14,7 +14,7 @@ function maskPhoneNumber(phone: string): string {
 }
 
 // GET /api/admin/submissions - List customer submissions with default masking
-adminSubmissionsRouter.get('/', (req, res) => {
+adminSubmissionsRouter.get('/', async (req, res) => {
   try {
     const { search, providerId, startDate, endDate, sort = 'desc', page = 1, limit = 20 } = req.query;
 
@@ -48,20 +48,21 @@ adminSubmissionsRouter.get('/', (req, res) => {
     const sortDir = sort === 'asc' ? 'ASC' : 'DESC';
 
     const countQuery = `SELECT COUNT(*) as total FROM customer_submissions s ${whereClause}`;
-    const total = (db.prepare(countQuery).get(...params) as { total: number }).total;
+    const countRow = await dbAdapter.queryOne<{ total: number }>(countQuery, params);
+    const total = Number(countRow?.total ?? 0);
 
     const query = `
       SELECT 
         s.id,
-        s.mobile_number as rawMobile,
-        s.provider_id as providerId,
-        s.provider_name as providerName,
-        prov.logo_url as providerLogo,
-        s.plan_id as planId,
-        s.plan_snapshot as planSnapshot,
+        s.mobile_number as "rawMobile",
+        s.provider_id as "providerId",
+        s.provider_name as "providerName",
+        prov.logo_url as "providerLogo",
+        s.plan_id as "planId",
+        s.plan_snapshot as "planSnapshot",
         s.status,
-        s.consent_version as consentVersion,
-        s.created_at as createdAt
+        s.consent_version as "consentVersion",
+        s.created_at as "createdAt"
       FROM customer_submissions s
       LEFT JOIN network_providers prov ON s.provider_id = prov.id
       ${whereClause}
@@ -69,21 +70,9 @@ adminSubmissionsRouter.get('/', (req, res) => {
       LIMIT ? OFFSET ?
     `;
 
-    const rows = db.prepare(query).all(...params, limitNum, offset) as Array<{
-      id: string;
-      rawMobile: string;
-      providerId: string;
-      providerName: string;
-      providerLogo: string;
-      planId: string | null;
-      planSnapshot: string | null;
-      status: string;
-      consentVersion: string;
-      createdAt: string;
-    }>;
+    const result = await dbAdapter.query(query, [...params, limitNum, offset]);
 
-    // Mask phone numbers by default for presentation
-    const submissions = rows.map((r) => ({
+    const submissions = result.rows.map((r: any) => ({
       id: r.id,
       maskedMobile: maskPhoneNumber(r.rawMobile),
       providerId: r.providerId,
@@ -113,21 +102,20 @@ adminSubmissionsRouter.get('/', (req, res) => {
 });
 
 // POST /api/admin/submissions/:id/reveal - Reveal unmasked phone number (Audited)
-adminSubmissionsRouter.post('/:id/reveal', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
+adminSubmissionsRouter.post('/:id/reveal', requireRole(['owner', 'manager']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
 
-    const record = db.prepare('SELECT id, mobile_number FROM customer_submissions WHERE id = ?').get(id) as {
-      id: string;
-      mobile_number: string;
-    } | undefined;
+    const record = await dbAdapter.queryOne<{ id: string; mobile_number: string }>(
+      'SELECT id, mobile_number FROM customer_submissions WHERE id = ?',
+      [id]
+    );
 
     if (!record) {
       return res.status(404).json({ error: 'Submission not found.' });
     }
 
-    // Log explicit audit event for security & compliance
-    logAudit(
+    await logAudit(
       req.admin,
       'REVEAL_PHONE_NUMBER',
       'CUSTOMER_SUBMISSION',
@@ -148,7 +136,7 @@ adminSubmissionsRouter.post('/:id/reveal', requireRole(['owner', 'manager']), (r
 });
 
 // GET /api/admin/submissions/export - Safe CSV Export with formula injection prevention
-adminSubmissionsRouter.get('/export', requireRole(['owner', 'manager']), (req: AuthenticatedRequest, res) => {
+adminSubmissionsRouter.get('/export', requireRole(['owner', 'manager']), async (req: AuthenticatedRequest, res) => {
   try {
     const { providerId, startDate, endDate, includeFullNumbers } = req.query;
 
@@ -168,22 +156,14 @@ adminSubmissionsRouter.get('/export', requireRole(['owner', 'manager']), (req: A
       params.push(endDate as string);
     }
 
-    const rows = db.prepare(`
+    const result = await dbAdapter.query(`
       SELECT s.id, s.mobile_number, s.provider_name, s.status, s.consent_version, s.created_at
       FROM customer_submissions s
       ${whereClause}
       ORDER BY s.created_at DESC
       LIMIT 5000
-    `).all(...params) as Array<{
-      id: string;
-      mobile_number: string;
-      provider_name: string;
-      status: string;
-      consent_version: string;
-      created_at: string;
-    }>;
+    `, params);
 
-    // Defense against CSV formula injection (prevent executing `=cmd`, `+`, `-`, `@`)
     const sanitizeCsvCell = (val: string) => {
       let cell = String(val ?? '');
       if (/^[=+\-@\t\r]/.test(cell)) {
@@ -196,7 +176,7 @@ adminSubmissionsRouter.get('/export', requireRole(['owner', 'manager']), (req: A
     const headers = ['Submission ID', 'Mobile Number', 'Operator', 'Status', 'Consent Version', 'Date & Time'];
     const lines = [headers.join(',')];
 
-    for (const r of rows) {
+    for (const r of result.rows) {
       const phone = allowFull ? r.mobile_number : maskPhoneNumber(r.mobile_number);
       lines.push([
         sanitizeCsvCell(r.id),
@@ -208,12 +188,12 @@ adminSubmissionsRouter.get('/export', requireRole(['owner', 'manager']), (req: A
       ].join(','));
     }
 
-    logAudit(
+    await logAudit(
       req.admin,
       'EXPORT_CUSTOMER_DATA',
       'CUSTOMER_SUBMISSIONS',
       'BULK',
-      `Exported ${rows.length} customer submission records (Full numbers: ${allowFull})`,
+      `Exported ${result.rows.length} customer submission records (Full numbers: ${allowFull})`,
       req
     );
 
@@ -227,18 +207,18 @@ adminSubmissionsRouter.get('/export', requireRole(['owner', 'manager']), (req: A
 });
 
 // DELETE /api/admin/submissions/:id - Delete / Anonymize submission (Owner only)
-adminSubmissionsRouter.delete('/:id', requireRole(['owner']), (req: AuthenticatedRequest, res) => {
+adminSubmissionsRouter.delete('/:id', requireRole(['owner']), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-    const existing = db.prepare('SELECT id FROM customer_submissions WHERE id = ?').get(id);
+    const existing = await dbAdapter.queryOne('SELECT id FROM customer_submissions WHERE id = ?', [id]);
 
     if (!existing) {
       return res.status(404).json({ error: 'Record not found.' });
     }
 
-    db.prepare('DELETE FROM customer_submissions WHERE id = ?').run(id);
+    await dbAdapter.execute('DELETE FROM customer_submissions WHERE id = ?', [id]);
 
-    logAudit(req.admin, 'DELETE_CUSTOMER_RECORD', 'CUSTOMER_SUBMISSION', id, `Deleted customer submission ${id}`, req);
+    await logAudit(req.admin, 'DELETE_CUSTOMER_RECORD', 'CUSTOMER_SUBMISSION', id, `Deleted customer submission ${id}`, req);
 
     res.json({ success: true, message: 'Record deleted.' });
   } catch (err) {

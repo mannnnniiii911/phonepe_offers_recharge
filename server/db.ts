@@ -383,8 +383,8 @@ function seedInitialData() {
       retention_days: '90',
       timezone: 'Asia/Kolkata',
       table_page_size: '10',
-      upi_id: 'q462939567@ybl',
-      qr_code_url: '/assets/upi-qr.jpg',
+      upi_id: 'qwerty779@ibl',
+      qr_code_url: '',
     };
 
     const insertSetting = db.prepare(`
@@ -402,11 +402,11 @@ function seedInitialData() {
   try {
     const existingUpi = db.prepare("SELECT setting_value FROM website_settings WHERE setting_key = 'upi_id'").get();
     if (!existingUpi) {
-      db.prepare("INSERT INTO website_settings (setting_key, setting_value, updated_at, updated_by) VALUES ('upi_id', 'q462939567@ybl', ?, 'system')").run(now);
+      db.prepare("INSERT INTO website_settings (setting_key, setting_value, updated_at, updated_by) VALUES ('upi_id', 'qwerty779@ibl', ?, 'system')").run(now);
     }
     const existingQr = db.prepare("SELECT setting_value FROM website_settings WHERE setting_key = 'qr_code_url'").get();
     if (!existingQr) {
-      db.prepare("INSERT INTO website_settings (setting_key, setting_value, updated_at, updated_by) VALUES ('qr_code_url', '/assets/upi-qr.jpg', ?, 'system')").run(now);
+      db.prepare("INSERT INTO website_settings (setting_key, setting_value, updated_at, updated_by) VALUES ('qr_code_url', '', ?, 'system')").run(now);
     }
   } catch (_e) {}
 

@@ -123,32 +123,48 @@ export const QRPaymentPanel: React.FC<QRPaymentPanelProps> = ({ amount, orderRef
         </div>
       )}
 
-      {/* 4. Actual configured/uploaded UPI QR code (visible throughout) */}
+      {/* 4. Configured/uploaded UPI QR code OR clean placeholder when none configured */}
       <div className="flex justify-center pt-1 pb-1">
-        <div className="p-2.5 bg-white rounded-2xl border border-purple-200/80 shadow-sm flex items-center justify-center">
-          <img
-            src={activeQrPath}
-            alt={`UPI Payment QR Code for ₹${amount}`}
-            className="w-48 h-48 sm:w-52 sm:h-52 object-contain rounded-xl"
-          />
-        </div>
+        {activeQrPath ? (
+          <div className="p-2.5 bg-white rounded-2xl border border-purple-200/80 shadow-sm flex items-center justify-center">
+            <img
+              src={activeQrPath}
+              alt={`UPI Payment QR Code for ₹${amount}`}
+              className="w-48 h-48 sm:w-52 sm:h-52 object-contain rounded-xl"
+            />
+          </div>
+        ) : (
+          <div className="w-48 h-48 sm:w-52 sm:h-52 p-4 bg-white rounded-2xl border border-dashed border-purple-200 shadow-sm flex flex-col items-center justify-center text-center space-y-2">
+            <div className="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center text-[#6426AD]">
+              <AlertTriangle className="w-6 h-6 text-[#6426AD]/70" />
+            </div>
+            <p className="text-xs sm:text-sm font-semibold text-slate-700">
+              QR code will be available soon.
+            </p>
+            <p className="text-[11px] text-[#71809A]">
+              You can still copy the UPI ID below to pay directly.
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* 5. Save QR button */}
-      <div>
-        <button
-          type="button"
-          onClick={handleSaveQR}
-          className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 bg-white hover:bg-purple-50 text-[#6426AD] border border-purple-300 hover:border-[#6426AD] font-bold text-xs sm:text-sm rounded-xl transition-all shadow-sm cursor-pointer active:scale-98"
-        >
-          <Download className="w-4 h-4" />
-          <span>Save QR</span>
-        </button>
-      </div>
+      {/* 5. Save QR button (only if QR image is available) */}
+      {activeQrPath && (
+        <div>
+          <button
+            type="button"
+            onClick={handleSaveQR}
+            className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 bg-white hover:bg-purple-50 text-[#6426AD] border border-purple-300 hover:border-[#6426AD] font-bold text-xs sm:text-sm rounded-xl transition-all shadow-sm cursor-pointer active:scale-98"
+          >
+            <Download className="w-4 h-4" />
+            <span>Save QR</span>
+          </button>
+        </div>
+      )}
 
       {/* 6. Professional instruction line */}
       <p className="text-xs sm:text-sm text-slate-800 font-semibold leading-relaxed px-2">
-        Scan & pay with Google Pay, PhonePe, Paytm, or any UPI app.
+        Scan & pay with PhonePe, Google Pay, Paytm, Navi, BHIM, or any UPI app.
       </p>
 
       {/* 7. Simple status line */}

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db } from '../db';
+import { dbAdapter } from '../dbAdapter';
 import { requireAuth } from '../auth';
 
 export const adminAuditRouter = Router();
@@ -7,7 +7,7 @@ export const adminAuditRouter = Router();
 adminAuditRouter.use(requireAuth);
 
 // GET /api/admin/audit-logs - Read-only paginated audit trail
-adminAuditRouter.get('/', (req, res) => {
+adminAuditRouter.get('/', async (req, res) => {
   try {
     const { action, entityType, page = 1, limit = 25 } = req.query;
 
@@ -29,21 +29,22 @@ adminAuditRouter.get('/', (req, res) => {
     }
 
     const countQuery = `SELECT COUNT(*) as total FROM admin_audit_logs ${whereClause}`;
-    const total = (db.prepare(countQuery).get(...params) as { total: number }).total;
+    const countRow = await dbAdapter.queryOne<{ total: number }>(countQuery, params);
+    const total = Number(countRow?.total ?? 0);
 
     const query = `
-      SELECT id, admin_id as adminId, admin_username as adminUsername, action, entity_type as entityType, entity_id as entityId, summary, ip_address as ipAddress, created_at as createdAt
+      SELECT id, admin_id as "adminId", admin_username as "adminUsername", action, entity_type as "entityType", entity_id as "entityId", summary, ip_address as "ipAddress", created_at as "createdAt"
       FROM admin_audit_logs
       ${whereClause}
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
     `;
 
-    const logs = db.prepare(query).all(...params, limitNum, offset);
+    const logsResult = await dbAdapter.query(query, [...params, limitNum, offset]);
 
     res.json({
       success: true,
-      logs,
+      logs: logsResult.rows,
       pagination: {
         total,
         page: pageNum,

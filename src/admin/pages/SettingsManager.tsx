@@ -34,8 +34,8 @@ export const SettingsManager: React.FC = () => {
   const [isSavingSupport, setIsSavingSupport] = useState(false);
 
   // Payment Settings (UPI ID & QR Code)
-  const [upiId, setUpiId] = useState('q462939567@ybl');
-  const [currentQrUrl, setCurrentQrUrl] = useState('/assets/upi-qr.jpg');
+  const [upiId, setUpiId] = useState('qwerty779@ibl');
+  const [currentQrUrl, setCurrentQrUrl] = useState('');
   const [previewQrUrl, setPreviewQrUrl] = useState<string | null>(null);
   const [isSavingPayment, setIsSavingPayment] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
@@ -305,7 +305,7 @@ export const SettingsManager: React.FC = () => {
                 type="text"
                 value={upiId}
                 onChange={(e) => setUpiId(e.target.value)}
-                placeholder="e.g. q462939567@ybl"
+                placeholder="e.g. qwerty779@ibl"
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#6426AD]"
               />
               <p className="text-[11px] text-slate-500">
@@ -333,17 +333,28 @@ export const SettingsManager: React.FC = () => {
           {/* QR Code Preview Card */}
           <div className="pt-1">
             <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 flex flex-col sm:flex-row items-center gap-4">
-              <div className="w-32 h-32 bg-white rounded-xl border border-slate-200 flex items-center justify-center p-2 flex-shrink-0 shadow-sm">
-                <img
-                  src={previewQrUrl || currentQrUrl}
-                  alt="Payment QR Code Preview"
-                  className="w-full h-full object-contain rounded-lg"
-                />
+              <div className="w-32 h-32 bg-white rounded-xl border border-slate-200 flex items-center justify-center p-2 flex-shrink-0 shadow-sm text-center">
+                {(previewQrUrl || currentQrUrl) ? (
+                  <img
+                    src={previewQrUrl || currentQrUrl}
+                    alt="Payment QR Code Preview"
+                    className="w-full h-full object-contain rounded-lg"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center p-2 text-slate-400 text-center">
+                    <QrCode className="w-8 h-8 mb-1 text-slate-300" />
+                    <span className="text-[10px] leading-tight font-medium text-slate-500">QR code will be available soon.</span>
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5 text-center sm:text-left flex-1">
                 <div className="flex items-center justify-center sm:justify-start gap-2">
                   <span className="text-xs font-bold text-slate-800">
-                    {previewQrUrl ? 'New QR Code Selected (Unsaved Preview)' : 'Current Active QR Code'}
+                    {previewQrUrl
+                      ? 'New QR Code Selected (Unsaved Preview)'
+                      : currentQrUrl
+                      ? 'Current Active QR Code'
+                      : 'No Active QR Code'}
                   </span>
                   {previewQrUrl && (
                     <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300">
@@ -354,7 +365,9 @@ export const SettingsManager: React.FC = () => {
                 <p className="text-xs text-slate-500 leading-relaxed">
                   {previewQrUrl
                     ? 'Click "Save Payment Settings" below to persist this QR code and immediately update the checkout page.'
-                    : 'This QR code is currently visible to customers on the checkout page.'}
+                    : currentQrUrl
+                    ? 'This QR code is currently visible to customers on the checkout page.'
+                    : 'No QR code is currently configured. Customers will see "QR code will be available soon."'}
                 </p>
                 {previewQrUrl && (
                   <button

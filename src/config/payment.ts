@@ -2,18 +2,17 @@
  * Centralized UPI Payment Configuration
  *
  * Update these values in ONE place to change payment details across the entire application.
- * The QR code image should be placed at: public/assets/upi-qr.jpg
  */
 
 export const PAYMENT_CONFIG = {
   /** The UPI VPA (Virtual Payment Address) to receive payments */
-  upiId: 'q462939567@ybl',
+  upiId: 'qwerty779@ibl',
 
   /** Display name for the payee shown in UPI payment apps */
   payeeName: 'PhonePe Recharge',
 
-  /** Path to the uploaded UPI QR code image (relative to public/) */
-  qrCodePath: '/assets/upi-qr.jpg',
+  /** Path to the uploaded UPI QR code image (relative to public/ or empty when none configured) */
+  qrCodePath: '',
 
   /**
    * Whether the QR code is static (amount not embedded) or dynamic.

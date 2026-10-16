@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { db } from '../db';
+import { dbAdapter } from '../dbAdapter';
 import { recordSupabasePaymentClick } from '../supabase';
 
 export const paymentClicksRouter = Router();
@@ -11,7 +11,7 @@ type ValidPaymentOption = (typeof VALID_PAYMENT_OPTIONS)[number];
 /**
  * POST /api/payment-clicks
  * Track customer click on a payment option.
- * Immediately records click event in local database and syncs to Supabase.
+ * Immediately records click event in database and syncs to Supabase.
  * Never treats click as proof of payment completion.
  */
 paymentClicksRouter.post('/payment-clicks', async (req, res) => {
@@ -38,13 +38,13 @@ paymentClicksRouter.post('/payment-clicks', async (req, res) => {
     const safeOrderId = typeof orderId === 'string' && orderId.trim() ? orderId.trim() : null;
     const safeSessionId = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : null;
 
-    // 1. Immediately record in local SQLite database
-    db.prepare(`
+    // 1. Immediately record in database
+    await dbAdapter.execute(`
       INSERT INTO payment_click_events (
         id, order_id, session_id, payment_option, clicked_at, client_ip, user_agent, created_at
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       eventId,
       safeOrderId,
       safeSessionId,
@@ -52,8 +52,8 @@ paymentClicksRouter.post('/payment-clicks', async (req, res) => {
       now,
       clientIp,
       userAgent,
-      now
-    );
+      now,
+    ]);
 
     // 2. Sync to Supabase in background (never blocks or throws error to client)
     recordSupabasePaymentClick({
@@ -78,14 +78,12 @@ paymentClicksRouter.post('/payment-clicks', async (req, res) => {
     });
   } catch (error) {
     console.error('[API_ERROR] POST /payment-clicks:', error);
-    // Return gracefully so customer payment flow remains uninterrupted
     return res.status(500).json({ error: 'Internal tracking error' });
   }
 });
 
 // Alias for compatibility
 paymentClicksRouter.post('/track/payment-click', async (req, res) => {
-  // Delegate to main handler
   req.url = '/payment-clicks';
   paymentClicksRouter.handle(req, res, () => {});
 });
@@ -94,17 +92,17 @@ paymentClicksRouter.post('/track/payment-click', async (req, res) => {
  * GET /api/payment-clicks
  * Retrieve recent payment option click events for verification and admin analytics.
  */
-paymentClicksRouter.get('/payment-clicks', (req, res) => {
+paymentClicksRouter.get('/payment-clicks', async (req, res) => {
   try {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
-    const events = db.prepare(`
+    const result = await dbAdapter.query(`
       SELECT id, order_id, session_id, payment_option, clicked_at, created_at
       FROM payment_click_events
       ORDER BY clicked_at DESC
       LIMIT ?
-    `).all(limit);
+    `, [limit]);
 
-    res.json({ success: true, count: events.length, events });
+    res.json({ success: true, count: result.rows.length, events: result.rows });
   } catch (error) {
     console.error('[API_ERROR] GET /payment-clicks:', error);
     res.status(500).json({ error: 'Failed to fetch payment click events' });
