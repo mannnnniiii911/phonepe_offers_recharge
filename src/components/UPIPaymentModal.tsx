@@ -40,7 +40,7 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
   const [error, setError] = useState<string>('');
   const [supportContact, setSupportContact] = useState<string>('');
   const [upiCopied, setUpiCopied] = useState(false);
-  const [activeUpiId] = useState<string>(PAYMENT_CONFIG.upiId);
+  const [activeUpiId, setActiveUpiId] = useState<string>(PAYMENT_CONFIG.upiId);
   const [activeQrCodeUrl, setActiveQrCodeUrl] = useState<string>(PAYMENT_CONFIG.qrCodePath);
 
   // App Payment Flow: 3.5-minute (210s) countdown state (starts ONLY when button is clicked)
@@ -98,7 +98,9 @@ export const UPIPaymentModal: React.FC<UPIPaymentModalProps> = ({ isOpen, onClos
           if (data.settings.customerSupportContact) {
             setSupportContact(data.settings.customerSupportContact);
           }
-          // UPI ID is intentionally hardcoded in PAYMENT_CONFIG; API settings must not override it.
+          if (data.settings.upiId) {
+            setActiveUpiId(data.settings.upiId);
+          }
           if (data.settings.qrCodeUrl) {
             setActiveQrCodeUrl(data.settings.qrCodeUrl);
           }
