@@ -1,12 +1,13 @@
 {
-    "rewrites": [
-        {
-            "source": "/api/:path*",
-            "destination": "https://phonepe-offers-recharge.onrender.com/api/:path*"
-        },
-        {
-            "source": "/(.*)",
-            "destination": "/index.html"
-        }
-    ]
+  "installCommand": "npm install --include=dev",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://phonepe-offers-recharge.onrender.com/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
 }
